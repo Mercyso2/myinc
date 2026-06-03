@@ -1,0 +1,11 @@
+services:
+  myinc-social-media-ai:
+    build: .
+    container_name: myinc-social-media-ai
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env.production
+    volumes:
+      - ./data:/app/data

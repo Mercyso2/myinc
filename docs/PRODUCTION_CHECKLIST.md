@@ -1,0 +1,21 @@
+# Checklist de Produção — v1.3.0-full-production-audit-no-mocks
+
+- [x] Login Supabase real via Auth REST.
+- [x] Fallback local bloqueado quando `VITE_APP_ENV=production`.
+- [x] Rotas internas protegidas e Painel ADM restrito a perfil admin.
+- [x] Imports de `mock-data.ts` removidos das telas principais e componentes visuais.
+- [x] Dashboard consulta posts reais no Supabase e mostra empty/error state sem mock.
+- [x] Planejamento chama `ai-generate-plan`, OpenAI real e persiste plano/ideias.
+- [x] Ideias podem ser aprovadas/reprovadas/arquivadas e enviadas para `posts`.
+- [x] Estúdio consulta posts reais, chama `generate-post-content`, `generate-image` e `publish-meta`.
+- [x] Biblioteca lista `media_assets` reais e faz upload para Storage.
+- [x] Calendário lista posts reais, agenda em `publish_queue` e chama Meta.
+- [x] Memória da Marca carrega/salva `brands` e `brand_profiles` com auto-save.
+- [x] Cérebro da IA carrega/cria regras e prompts reais.
+- [x] Logs reais são listados, filtrados e exportados em JSON/CSV.
+- [x] `admin-status` verifica OpenAI, Meta, tabelas, buckets e admin sem revelar segredos.
+- [x] `generate-post-content` gera copy/prompt/briefing/score real com OpenAI.
+- [x] `generate-image` chama OpenAI Images, salva no Storage e atualiza post/assets/versions/logs.
+- [x] `publish-meta` valida e publica/retorna erro real sem simular sucesso.
+- [x] `docs/BUTTON_AUDIT.md` criado.
+- [ ] Teste real de primeira publicação Meta em produção com credenciais válidas pelo usuário.

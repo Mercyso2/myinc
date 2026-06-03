@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">MYINC Social Media AI — Dashboard estável</title>
+  <desc id="desc">Preview vetorial do dashboard da versão estável sem arquivo binário.</desc>
+  <defs>
+    <linearGradient id="orange" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#F97316"/>
+      <stop offset="1" stop-color="#FDBA74"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="720" fill="#151515"/>
+  <circle cx="1110" cy="70" r="180" fill="#F97316" opacity="0.18"/>
+  <circle cx="160" cy="650" r="220" fill="#F97316" opacity="0.08"/>
+  <rect x="42" y="36" width="1196" height="648" rx="34" fill="#f7f4ef" filter="url(#shadow)"/>
+  <rect x="42" y="36" width="232" height="648" rx="34" fill="#171717"/>
+  <text x="80" y="91" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="28" font-weight="800">my inc</text>
+  <text x="80" y="124" fill="#F97316" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700" letter-spacing="2">SOCIAL MEDIA AI</text>
+  <g font-family="Inter,Arial,sans-serif" font-size="15" font-weight="700">
+    <rect x="70" y="170" width="174" height="42" rx="14" fill="#F97316" opacity="0.22"/>
+    <text x="96" y="197" fill="#fff">Painel</text>
+    <text x="96" y="254" fill="#c9c4bd">Planejamento</text>
+    <text x="96" y="309" fill="#c9c4bd">Estúdio Criativo</text>
+    <text x="96" y="364" fill="#c9c4bd">Calendário</text>
+    <text x="96" y="419" fill="#c9c4bd">Cérebro da IA</text>
+    <text x="96" y="474" fill="#c9c4bd">Painel ADM</text>
+  </g>
+  <rect x="80" y="590" width="132" height="28" rx="14" fill="#F97316" opacity="0.18"/>
+  <text x="98" y="609" fill="#F97316" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="800">v1.0.0 stable</text>
+  <text x="320" y="94" fill="#171717" font-family="Inter,Arial,sans-serif" font-size="34" font-weight="900">Central MYINC Social Media AI</text>
+  <text x="320" y="125" fill="#6b645d" font-family="Inter,Arial,sans-serif" font-size="16">Planeje, aprove, organize e publique 30 conteúdos mensais.</text>
+  <rect x="1010" y="70" width="174" height="46" rx="23" fill="url(#orange)"/>
+  <text x="1040" y="99" fill="#1f140d" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="900">Criar planejamento</text>
+  <g>
+    <rect x="320" y="165" width="130" height="104" rx="22" fill="#fff"/>
+    <rect x="470" y="165" width="130" height="104" rx="22" fill="#fff"/>
+    <rect x="620" y="165" width="130" height="104" rx="22" fill="#fff"/>
+    <rect x="770" y="165" width="130" height="104" rx="22" fill="#fff"/>
+    <rect x="920" y="165" width="130" height="104" rx="22" fill="#fff"/>
+    <rect x="1070" y="165" width="130" height="104" rx="22" fill="#fff"/>
+    <g font-family="Inter,Arial,sans-serif">
+      <text x="345" y="211" fill="#F97316" font-size="30" font-weight="900">30</text><text x="345" y="240" fill="#6b645d" font-size="12">Planejados</text>
+      <text x="495" y="211" fill="#22a06b" font-size="30" font-weight="900">18</text><text x="495" y="240" fill="#6b645d" font-size="12">Aprovados</text>
+      <text x="645" y="211" fill="#d97706" font-size="30" font-weight="900">9</text><text x="645" y="240" fill="#6b645d" font-size="12">Pendentes</text>
+      <text x="795" y="211" fill="#22a06b" font-size="30" font-weight="900">8</text><text x="795" y="240" fill="#6b645d" font-size="12">Publicados</text>
+      <text x="945" y="211" fill="#dc2626" font-size="30" font-weight="900">1</text><text x="945" y="240" fill="#6b645d" font-size="12">Com erro</text>
+      <text x="1095" y="211" fill="#171717" font-size="30" font-weight="900">0</text><text x="1095" y="240" fill="#6b645d" font-size="12">Arquivados</text>
+    </g>
+  </g>
+  <rect x="320" y="305" width="540" height="300" rx="28" fill="#fff"/>
+  <text x="350" y="350" fill="#171717" font-family="Inter,Arial,sans-serif" font-size="20" font-weight="900">Calendário editorial</text>
+  <g fill="#f0ede8">
+    <rect x="350" y="380" width="62" height="48" rx="12"/><rect x="422" y="380" width="62" height="48" rx="12"/><rect x="494" y="380" width="62" height="48" rx="12"/><rect x="566" y="380" width="62" height="48" rx="12"/><rect x="638" y="380" width="62" height="48" rx="12"/><rect x="710" y="380" width="62" height="48" rx="12"/><rect x="782" y="380" width="48" height="48" rx="12"/>
+    <rect x="350" y="440" width="62" height="48" rx="12"/><rect x="422" y="440" width="62" height="48" rx="12"/><rect x="494" y="440" width="62" height="48" rx="12"/><rect x="566" y="440" width="62" height="48" rx="12"/><rect x="638" y="440" width="62" height="48" rx="12"/><rect x="710" y="440" width="62" height="48" rx="12"/><rect x="782" y="440" width="48" height="48" rx="12"/>
+    <rect x="350" y="500" width="62" height="48" rx="12"/><rect x="422" y="500" width="62" height="48" rx="12"/><rect x="494" y="500" width="62" height="48" rx="12"/><rect x="566" y="500" width="62" height="48" rx="12"/><rect x="638" y="500" width="62" height="48" rx="12"/><rect x="710" y="500" width="62" height="48" rx="12"/><rect x="782" y="500" width="48" height="48" rx="12"/>
+  </g>
+  <rect x="494" y="440" width="62" height="48" rx="12" fill="#F97316" opacity="0.18"/>
+  <rect x="710" y="500" width="62" height="48" rx="12" fill="#F97316" opacity="0.28"/>
+  <rect x="900" y="305" width="300" height="300" rx="28" fill="#171717"/>
+  <text x="930" y="350" fill="#F97316" font-family="Inter,Arial,sans-serif" font-size="13" font-weight="900" letter-spacing="2">RELEASE ATUAL</text>
+  <text x="930" y="392" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="28" font-weight="900">v1.0.0-stable</text>
+  <text x="930" y="425" fill="#bbb6ae" font-family="Inter,Arial,sans-serif" font-size="14">Versão estável para operação,</text>
+  <text x="930" y="446" fill="#bbb6ae" font-family="Inter,Arial,sans-serif" font-size="14">documentação e evolução no GitHub.</text>
+  <rect x="930" y="490" width="230" height="54" rx="18" fill="#252525"/>
+  <circle cx="958" cy="517" r="7" fill="#22a06b"/>
+  <text x="978" y="522" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="800">Build validado</text>
+</svg>
