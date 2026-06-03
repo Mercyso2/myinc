@@ -21,7 +21,7 @@ export const navItems = [
   { title: "Cérebro da IA", url: "/cerebro-ia", icon: Brain, highlight: true },
   { title: "Biblioteca", url: "/biblioteca", icon: Images },
   { title: "Memória da Marca", url: "/configuracoes", icon: Settings },
-  { title: "Painel ADM", url: "/admin", icon: Settings },
+  { title: "Configurações Técnicas", url: "/admin", icon: Settings },
   { title: "Logs", url: "/logs", icon: ScrollText },
 ];
 
