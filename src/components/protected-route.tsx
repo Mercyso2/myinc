@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, isAdmin } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
   if (pathname === "/login") return <>{children}</>;
@@ -17,14 +17,8 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!isAuthenticated) return <Navigate to="/login" search={{ redirect: pathname }} />;
-
-  if (pathname.startsWith("/admin") && !isAdmin) {
-    return (
-      <div className="mx-auto max-w-xl rounded-3xl border border-destructive/25 bg-destructive/10 p-6 text-destructive shadow-soft">
-        Painel ADM restrito a usuários administradores. Faça login com um perfil admin.
-      </div>
-    );
+  if (!isAuthenticated) {
+    return <Navigate to="/login" search={{ redirect: pathname }} />;
   }
 
   return <>{children}</>;
