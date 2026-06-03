@@ -1,96 +1,210 @@
-import { handleOptions, json, errorJson, readJson, asString, nowIso } from '../_shared/http.ts';
-import { maybeGetPost, updateByIdCompatible } from '../_shared/supabase.ts';
-import { generateOpenAIImage } from '../_shared/openai.ts';
-import { uploadMediaBytes, updatePostAfterMedia } from '../_shared/media.ts';
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
-function formatToSize(format: string): string {
-  const f = format.toLowerCase();
-  if (f.includes('story') || f.includes('reel') || f.includes('vertical')) return '1024x1792';
-  if (f.includes('feed') || f.includes('square')) return '1024x1024';
-  if (f.includes('landscape') || f.includes('banner')) return '1792x1024';
-  return '1024x1024';
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
-function buildImagePrompt(input: Record<string, unknown>, post: Record<string, unknown> | null): string {
-  const title = asString(input.title, asString(post?.title, 'Criativo institucional My Inc'));
-  const caption = asString(input.caption, asString(post?.caption, asString(post?.content, '')));
-  const format = asString(input.format, asString(post?.format, 'feed'));
-  const brand = asString(input.brand_context, 'My Inc, incorporadora premium, alto padrão, arquitetura contemporânea, imóveis de desejo.');
-  const extra = asString(input.prompt, '');
-
-  return `
-Criar uma imagem publicitária premium para rede social de incorporadora imobiliária.
-Marca: ${brand}
-Título do post: ${title}
-Formato: ${format}
-Contexto/copy: ${caption}
-Direção criativa adicional: ${extra}
-
-Requisitos visuais obrigatórios:
-- Visual de alto padrão, sofisticado, realista, moderno, arquitetura contemporânea brasileira.
-- Iluminação cinematográfica, composição profissional, profundidade, materiais nobres, concreto, vidro, madeira, vegetação e atmosfera aspiracional.
-- Sem texto renderizado dentro da imagem, sem logotipos falsos, sem marcas d'água, sem letras quebradas.
-- Deve parecer campanha de incorporadora premium, não imagem genérica de banco.
-- Área segura para aplicação posterior de copy no layout.
-- Qualidade final publicável em Instagram/Facebook.
-`.trim();
+function requireEnv(name: string) {
+  const value = Deno.env.get(name);
+  if (!value) throw new Error(`${name} ausente no backend. Operação real não executada.`);
+  return value;
 }
 
-Deno.serve(async (req) => {
-  const options = handleOptions(req);
-  if (options) return options;
+function openAiSize(format = "") {
+  const normalized = String(format).toLowerCase();
+  if (normalized.includes("quadrado") || normalized.includes("thumbnail")) return "1024x1024";
+  if (normalized.includes("facebook") && !normalized.includes("story")) return "1536x1024";
+  return "1024x1536";
+}
+
+function modelCandidates(runtime: Record<string, string | null>) {
+  const primary = cfg(runtime, "OPENAI_IMAGE_MODEL", "gpt-image-2");
+  const fallbacks = (cfg(runtime, "OPENAI_IMAGE_FALLBACK_MODELS", "gpt-image-1.5,gpt-image-1"))
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return [...new Set([primary, ...fallbacks])];
+}
+
+function imagePrompt(
+  post: Record<string, unknown>,
+  profile: unknown,
+  visualRules: unknown,
+  refs: unknown,
+) {
+  return [
+    "Crie imagem publicitária premium para social media da MYINC Incorporadora.",
+    `Post: ${String(post.title ?? post.theme ?? "MYINC")}.`,
+    `Brief: ${String(post.image_prompt ?? post.creative_brief ?? post.title ?? "Arquitetura premium")}.`,
+    `Formato: ${String(post.format ?? "Feed 4:5")}. Canal: ${String(post.channel ?? "Instagram")}. Objetivo: ${String(post.objective ?? "gerar desejo e leads qualificados")}.`,
+    "Direção de arte: arquitetura contemporânea brasileira de alto padrão, luz natural cinematográfica, materiais nobres, concreto/vidro/madeira/pedra, composição limpa, espaço negativo elegante, profundidade realista, estética de agência premium imobiliária.",
+    "Paleta: grafite profundo, off-white, areia, cobre/laranja discreto. Sem cores neon e sem visual infantil.",
+    "Texto na arte: mínimo, legível, em português do Brasil. Se houver dúvida, prefira sem texto e deixe espaço seguro para overlay.",
+    "Não inventar logo, não deformar marca, não usar marcas de terceiros.",
+    `Memória visual: ${JSON.stringify(profile ?? {})}.`,
+    `Regras visuais ativas: ${JSON.stringify(visualRules ?? [])}.`,
+    `Referências aprovadas: ${JSON.stringify(refs ?? [])}.`,
+    "Negative prompt: baixa qualidade, mockup genérico, excesso de texto, letras distorcidas, logo falso, design amador, panfleto, watermark, pessoas deformadas, mãos defeituosas.",
+  ].join("\n");
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  const supabaseUrl = requireEnv("SUPABASE_URL");
+  const serviceRole = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const supabase = createClient(supabaseUrl, serviceRole);
+  const runtime = await loadRuntimeConfig(supabase);
+  const openAiKey = requiredCfg(runtime, "OPENAI_API_KEY", "Geração de imagem");
+
+  async function log(row: Record<string, unknown>) {
+    await supabase.from("system_logs").insert({ type: row.type ?? "image", ...row });
+  }
 
   try {
-    const input = await readJson(req);
-    const postId = asString(input.post_id || input.postId);
-    const post = await maybeGetPost(postId || undefined);
-    const format = asString(input.format, asString(post?.format, 'feed'));
-    const prompt = buildImagePrompt(input, post);
-    const size = asString(input.size, formatToSize(format));
+    const { postId } = await req.json();
+    if (!postId) return json({ error: "postId é obrigatório." }, 400);
 
-    if (postId) {
-      await updateByIdCompatible('posts', postId, [
-        { generation_status: 'processing', generation_error: null, updated_at: nowIso() },
-        { status: 'generating', updated_at: nowIso() },
-      ]);
-    }
+    const { data: post, error: postError } = await supabase
+      .from("posts")
+      .select("*")
+      .eq("id", postId)
+      .single();
+    if (postError || !post) throw postError ?? new Error("Post não encontrado.");
 
-    const result = await generateOpenAIImage({
-      prompt,
-      size,
-      quality: typeof input.quality === 'string' ? input.quality : undefined,
-      model: typeof input.model === 'string' ? input.model : undefined,
-    });
+    const { data: profile } = await supabase
+      .from("brand_profiles")
+      .select("*")
+      .eq("brand_id", post.brand_id)
+      .maybeSingle();
+    const { data: visualRules } = await supabase
+      .from("brand_visual_rules")
+      .select("rule_type,content")
+      .eq("brand_id", post.brand_id)
+      .eq("active", true)
+      .is("archived_at", null);
+    const { data: refs } = await supabase
+      .from("library_items")
+      .select("name,notes,url,ai_usage_rule")
+      .eq("brand_id", post.brand_id)
+      .eq("status", "referência aprovada")
+      .is("archived_at", null)
+      .limit(12);
 
-    const uploaded = await uploadMediaBytes({
-      postId: postId || undefined,
-      title: asString(input.title, asString(post?.title, 'myinc-image')),
-      bytes: result.bytes,
-      kind: 'image',
-      contentType: result.mime,
-      preferredExt: result.ext,
-      metadata: { prompt, size, model: result.model, source: result.source, generated_at: nowIso() },
-    });
+    const finalPrompt = imagePrompt(post, profile, visualRules, refs);
 
-    await updatePostAfterMedia({
-      postId: postId || undefined,
-      kind: 'image',
-      url: uploaded.url,
-      metadata: { storage_path: uploaded.path, model: result.model, size, prompt },
-    });
-
-    return json({ ok: true, post_id: postId || null, media_url: uploaded.url, storage_path: uploaded.path, model: result.model, mime: uploaded.mime });
-  } catch (error) {
-    try {
-      const body = await req.clone().json().catch(() => ({}));
-      const postId = body?.post_id || body?.postId;
-      if (postId) {
-        await updateByIdCompatible('posts', String(postId), [
-          { generation_status: 'failed', generation_error: error instanceof Error ? error.message : String(error), updated_at: nowIso() },
-          { status: 'generation_failed', updated_at: nowIso() },
-        ]);
+    let base64 = "";
+    let usedModel = "";
+    const errors: string[] = [];
+    for (const model of modelCandidates(runtime)) {
+      const imageResponse = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openAiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          prompt: finalPrompt,
+          size: openAiSize(post.format),
+          output_format: cfg(runtime, "OPENAI_IMAGE_FORMAT", "png"),
+          quality: cfg(runtime, "OPENAI_IMAGE_QUALITY", "high"),
+          n: 1,
+        }),
+      });
+      const imageJson = await imageResponse.json().catch(() => ({}));
+      if (imageResponse.ok && imageJson.data?.[0]?.b64_json) {
+        base64 = imageJson.data[0].b64_json;
+        usedModel = model;
+        break;
       }
-    } catch (_ignored) {}
-    return errorJson('Falha ao gerar imagem real.', 500, error);
+      errors.push(`${model}: ${imageJson?.error?.message ?? JSON.stringify(imageJson)}`);
+    }
+    if (!base64) throw new Error(`Provedor de imagem não retornou b64_json. ${errors.join(" | ")}`);
+
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    if (bytes.byteLength < 20_000)
+      throw new Error(`Imagem muito pequena para produção (${bytes.byteLength} bytes).`);
+    const path = `${post.brand_id}/${post.id}/${crypto.randomUUID()}.png`;
+    const mediaBucket = cfg(runtime, "MEDIA_BUCKET", "creative-media");
+    const { error: uploadError } = await supabase.storage
+      .from(mediaBucket)
+      .upload(path, bytes, { contentType: "image/png", upsert: false });
+    if (uploadError) throw uploadError;
+    const { data: publicUrl } = supabase.storage.from(mediaBucket).getPublicUrl(path);
+    const mediaUrl = publicUrl.publicUrl;
+
+    const { data: mediaAsset } = await supabase
+      .from("media_assets")
+      .insert({
+        brand_id: post.brand_id,
+        post_id: post.id,
+        name: `Criativo ${post.title}`,
+        media_type: "Imagem gerada",
+        url: mediaUrl,
+        preview_url: mediaUrl,
+        status: "ativo",
+        origin: `openai:${usedModel}`,
+        ai_allowed: true,
+        storage_bucket: mediaBucket,
+        storage_path: path,
+        is_final: true,
+        used_in_publish: false,
+        notes: finalPrompt,
+      })
+      .select()
+      .single();
+
+    await supabase.from("post_versions").insert({
+      post_id: post.id,
+      version_label: `V${Date.now()}`,
+      caption: post.caption,
+      image_prompt: finalPrompt,
+      media_url: mediaUrl,
+      quality_score: post.quality_score,
+      output_json: {
+        image_model: usedModel,
+        image_size: openAiSize(post.format),
+        media_url: mediaUrl,
+      },
+    });
+
+    const { data: updatedPost, error: updateError } = await supabase
+      .from("posts")
+      .update({
+        media_url: mediaUrl,
+        status: "aguardando_revisao",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", post.id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+
+    await log({
+      brand_id: post.brand_id,
+      post_id: post.id,
+      module: "imagem",
+      status: "sucesso",
+      friendly_message: "Imagem real gerada, validada e salva no Supabase Storage.",
+      technical_detail: `media_asset=${mediaAsset?.id}; path=${path}; model=${usedModel}; size=${openAiSize(post.format)}`,
+    });
+
+    return json({ ok: true, post: updatedPost, mediaUrl, mediaAsset, model: usedModel });
+  } catch (error) {
+    await log({
+      module: "imagem",
+      status: "erro",
+      friendly_message: "Falha ao gerar imagem real.",
+      technical_detail: error instanceof Error ? error.message : String(error),
+    });
+    return json({ error: error instanceof Error ? error.message : "Erro desconhecido" }, 400);
   }
 });

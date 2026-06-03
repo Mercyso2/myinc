@@ -1,86 +1,206 @@
-import { handleOptions, json, errorJson, readJson, asString, asNumber, nowIso } from '../_shared/http.ts';
-import { envBool } from '../_shared/env.ts';
-import { maybeGetPost, updateByIdCompatible } from '../_shared/supabase.ts';
-import { createAndDownloadVideo } from '../_shared/openai.ts';
-import { uploadMediaBytes, updatePostAfterMedia } from '../_shared/media.ts';
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { boolCfg, cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
-function buildVideoPrompt(input: Record<string, unknown>, post: Record<string, unknown> | null): string {
-  const title = asString(input.title, asString(post?.title, 'Reels My Inc'));
-  const caption = asString(input.caption, asString(post?.caption, asString(post?.content, '')));
-  const extra = asString(input.prompt, '');
-  return `
-Criar vídeo vertical 9:16 para Reels de incorporadora premium.
-Marca: My Inc.
-Tema: ${title}
-Copy/contexto: ${caption}
-Direção adicional: ${extra}
-
-Roteiro visual:
-- 0-2s: abertura impactante com fachada/arquitetura contemporânea de alto padrão.
-- 2-5s: detalhes premium: hall, varanda, luz natural, textura de materiais, vegetação e lifestyle.
-- 5-8s: encerramento aspiracional com sensação de desejo e exclusividade.
-
-Regras:
-- Sem texto dentro do vídeo, sem legenda queimada, sem logotipos falsos.
-- Visual realista, cinematográfico, elegante, com movimento de câmera suave.
-- Não usar pessoas deformadas, mãos em destaque ou elementos irreais.
-- Saída precisa ser MP4 vertical publicável no Instagram Reels.
-`.trim();
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+function requireEnv(name: string) {
+  const value = Deno.env.get(name);
+  if (!value) throw new Error(`${name} ausente no backend. Operação real não executada.`);
+  return value;
+}
+function truthy(value: string | undefined, fallback = false) {
+  if (value === undefined || value === "") return fallback;
+  return ["1", "true", "yes", "sim", "on"].includes(value.toLowerCase());
+}
+function videoPrompt(post: Record<string, unknown>, profile: unknown, refs: unknown) {
+  const script =
+    post.video_prompt ||
+    post.master_prompt ||
+    post.creative_brief ||
+    post.image_prompt ||
+    post.caption;
+  return [
+    "Vídeo/Reels vertical premium para MYINC Incorporadora, arquitetura contemporânea brasileira de alto padrão.",
+    `Tema: ${String(post.title ?? post.theme ?? post.headline ?? "MYINC")}.`,
+    `Roteiro/brief: ${String(script ?? "reveal de arquitetura premium, materiais nobres e CTA elegante")}.`,
+    "Movimento: câmera suave, travelling lento, reveal de fachada/interiores, detalhes de materiais nobres, luz natural cinematográfica, sem movimentos bruscos.",
+    "Estética: imobiliário alto padrão, sofisticado, limpo, premium, grafite/off-white/cobre discreto, sem visual genérico.",
+    `Texto na tela: mínimo, legível, português do Brasil. CTA final: ${String(post.cta ?? "Fale com a equipe MYINC")}.`,
+    `Memória da marca: ${JSON.stringify(profile ?? {})}.`,
+    `Referências aprovadas: ${JSON.stringify(refs ?? [])}.`,
+    "Evitar: pessoas deformadas, mãos, logo falso, watermark, textos quebrados, visual panfleto, excesso de elementos, promessas exageradas.",
+  ].join("\n");
 }
 
-Deno.serve(async (req) => {
-  const options = handleOptions(req);
-  if (options) return options;
-
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const supabase = createClient(
+    requireEnv("SUPABASE_URL"),
+    requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
+  );
+  const runtime = await loadRuntimeConfig(supabase);
+  const openAiKey = requiredCfg(runtime, "OPENAI_API_KEY", "Geração de vídeo");
+  async function log(row: Record<string, unknown>) {
+    await supabase.from("system_logs").insert({ type: row.type ?? "video", ...row });
+  }
   try {
-    if (!envBool('ENABLE_OPENAI_VIDEO', false)) {
-      throw new Error('ENABLE_OPENAI_VIDEO=false. Ative esse secret para gerar vídeo real.');
+    if (!boolCfg(runtime, "ENABLE_OPENAI_VIDEO", true)) {
+      throw new Error("ENABLE_OPENAI_VIDEO=false. Ative para gerar MP4 real.");
     }
-
-    const input = await readJson(req);
-    const postId = asString(input.post_id || input.postId);
-    const post = await maybeGetPost(postId || undefined);
-    const prompt = buildVideoPrompt(input, post);
-    const seconds = asNumber(input.seconds, 8);
-    const size = asString(input.size, '1080x1920');
-
-    if (postId) {
-      await updateByIdCompatible('posts', postId, [
-        { generation_status: 'processing_video', generation_error: null, updated_at: nowIso() },
-        { status: 'generating_video', updated_at: nowIso() },
-      ]);
+    const { postId } = await req.json();
+    if (!postId) return json({ error: "postId é obrigatório." }, 400);
+    const { data: post, error: postError } = await supabase
+      .from("posts")
+      .select("*")
+      .eq("id", postId)
+      .single();
+    if (postError || !post) throw postError ?? new Error("Post não encontrado.");
+    const { data: profile } = await supabase
+      .from("brand_profiles")
+      .select("*")
+      .eq("brand_id", post.brand_id)
+      .maybeSingle();
+    const { data: refs } = await supabase
+      .from("library_items")
+      .select("name,notes,url,ai_usage_rule")
+      .eq("brand_id", post.brand_id)
+      .eq("status", "referência aprovada")
+      .is("archived_at", null)
+      .limit(8);
+    const prompt = videoPrompt(post, profile, refs);
+    const form = new FormData();
+    const model = cfg(runtime, "OPENAI_VIDEO_MODEL", "sora-2-pro");
+    form.append("model", model);
+    form.append("prompt", prompt);
+    form.append("size", cfg(runtime, "OPENAI_VIDEO_SIZE", "1080x1920"));
+    form.append("seconds", cfg(runtime, "OPENAI_VIDEO_SECONDS", "8"));
+    const createRes = await fetch("https://api.openai.com/v1/videos", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${openAiKey}` },
+      body: form,
+    });
+    let video = await createRes.json().catch(() => ({}));
+    if (!createRes.ok) throw new Error(video?.error?.message ?? JSON.stringify(video));
+    const videoId = video.id;
+    if (!videoId) throw new Error("OpenAI Videos não retornou id.");
+    await supabase
+      .from("posts")
+      .update({
+        video_job_id: videoId,
+        video_status: video.status ?? "queued",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", post.id);
+    const timeoutSeconds = Number(cfg(runtime, "OPENAI_VIDEO_POLL_TIMEOUT_SECONDS", "240"));
+    const pollSeconds = Math.max(
+      5,
+      Number(cfg(runtime, "OPENAI_VIDEO_POLL_INTERVAL_SECONDS", "12")),
+    );
+    const deadline = Date.now() + timeoutSeconds * 1000;
+    while (["queued", "in_progress"].includes(String(video.status)) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, pollSeconds * 1000));
+      const pollRes = await fetch(`https://api.openai.com/v1/videos/${videoId}`, {
+        headers: { Authorization: `Bearer ${openAiKey}` },
+      });
+      video = await pollRes.json().catch(() => ({}));
+      if (!pollRes.ok) throw new Error(video?.error?.message ?? JSON.stringify(video));
+      await supabase
+        .from("posts")
+        .update({
+          video_status: video.status,
+          video_progress: video.progress ?? 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", post.id);
     }
-
-    const video = await createAndDownloadVideo({ prompt, size, seconds, model: asString(input.model) || undefined });
-    const uploaded = await uploadMediaBytes({
-      postId: postId || undefined,
-      title: asString(input.title, asString(post?.title, 'myinc-reels')),
-      bytes: video.bytes,
-      kind: 'video',
-      contentType: 'video/mp4',
-      preferredExt: 'mp4',
-      metadata: { prompt, size, seconds, model: video.model, openai_video_id: video.videoId, generated_at: nowIso() },
+    if (video.status !== "completed") {
+      await log({
+        brand_id: post.brand_id,
+        post_id: post.id,
+        module: "video",
+        status: "alerta",
+        friendly_message: "Vídeo iniciado, mas ainda não finalizou dentro do tempo configurado.",
+        technical_detail: JSON.stringify({
+          videoId,
+          status: video.status,
+          progress: video.progress,
+        }),
+      });
+      return json({
+        ok: true,
+        pending: true,
+        videoId,
+        status: video.status,
+        progress: video.progress ?? 0,
+      });
+    }
+    const contentRes = await fetch(`https://api.openai.com/v1/videos/${videoId}/content`, {
+      headers: { Authorization: `Bearer ${openAiKey}` },
     });
-
-    await updatePostAfterMedia({
-      postId: postId || undefined,
-      kind: 'video',
-      url: uploaded.url,
-      metadata: { storage_path: uploaded.path, model: video.model, size, seconds, prompt, openai_video_id: video.videoId },
+    if (!contentRes.ok) throw new Error(`Falha ao baixar MP4: ${contentRes.status}`);
+    const bytes = new Uint8Array(await contentRes.arrayBuffer());
+    if (bytes.byteLength < 80_000)
+      throw new Error(`MP4 muito pequeno para produção (${bytes.byteLength} bytes).`);
+    const path = `${post.brand_id}/${post.id}/${crypto.randomUUID()}.mp4`;
+    const { error: uploadError } = await supabase.storage
+      .from(cfg(runtime, "MEDIA_BUCKET", "creative-media"))
+      .upload(path, bytes, { contentType: "video/mp4", upsert: false });
+    if (uploadError) throw uploadError;
+    const { data: publicUrl } = supabase.storage.from(cfg(runtime, "MEDIA_BUCKET", "creative-media")).getPublicUrl(path);
+    const videoUrl = publicUrl.publicUrl;
+    await supabase.from("media_assets").insert({
+      brand_id: post.brand_id,
+      post_id: post.id,
+      name: `Reels ${post.title}`,
+      media_type: "Vídeo gerado",
+      url: videoUrl,
+      preview_url: post.video_poster_url ?? post.media_url ?? videoUrl,
+      status: "ativo",
+      origin: `openai-video:${model}`,
+      ai_allowed: true,
+      storage_bucket: cfg(runtime, "MEDIA_BUCKET", "creative-media"),
+      storage_path: path,
+      is_final: true,
+      used_in_publish: false,
+      notes: prompt,
     });
-
-    return json({ ok: true, post_id: postId || null, video_url: uploaded.url, storage_path: uploaded.path, model: video.model, openai_video_id: video.videoId });
+    const { data: updatedPost } = await supabase
+      .from("posts")
+      .update({
+        video_url: videoUrl,
+        media_url: videoUrl,
+        video_status: "completed",
+        status: "aguardando_revisao",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", post.id)
+      .select()
+      .single();
+    await log({
+      brand_id: post.brand_id,
+      post_id: post.id,
+      module: "video",
+      status: "sucesso",
+      friendly_message: "Vídeo/Reels real gerado e salvo no Supabase Storage.",
+      technical_detail: `videoId=${videoId}; path=${path}; model=${model}`,
+    });
+    return json({ ok: true, post: updatedPost, videoUrl, videoId, model });
   } catch (error) {
-    try {
-      const body = await req.clone().json().catch(() => ({}));
-      const postId = body?.post_id || body?.postId;
-      if (postId) {
-        await updateByIdCompatible('posts', String(postId), [
-          { generation_status: 'failed', generation_error: error instanceof Error ? error.message : String(error), updated_at: nowIso() },
-          { status: 'generation_failed', updated_at: nowIso() },
-        ]);
-      }
-    } catch (_ignored) {}
-    return errorJson('Falha ao gerar vídeo real.', 500, error);
+    await log({
+      module: "video",
+      status: "erro",
+      friendly_message: "Falha ao gerar vídeo/Reels real.",
+      technical_detail: error instanceof Error ? error.message : String(error),
+    });
+    return json({ error: error instanceof Error ? error.message : "Erro desconhecido" }, 400);
   }
 });

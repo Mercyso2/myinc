@@ -149,6 +149,7 @@ function Admin() {
           <TabsTrigger value="versao">Versão estável</TabsTrigger>
         </TabsList>
         <TabsContent value="chaves">
+          <RuntimeSettingsPanel onSaved={testConnections} />
           <div className="grid gap-4 md:grid-cols-2">
             <ConnectionStatus
               label="Supabase frontend"
@@ -276,6 +277,182 @@ function Admin() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+
+type RuntimeSettingsForm = {
+  OPENAI_API_KEY: string;
+  OPENAI_TEXT_MODEL: string;
+  OPENAI_IMAGE_MODEL: string;
+  OPENAI_IMAGE_QUALITY: string;
+  ENABLE_OPENAI_VIDEO: string;
+  OPENAI_VIDEO_MODEL: string;
+  META_PAGE_ACCESS_TOKEN: string;
+  META_PAGE_ID: string;
+  META_INSTAGRAM_BUSINESS_ID: string;
+  PUBLIC_MEDIA_BASE_URL: string;
+  MEDIA_BUCKET: string;
+};
+
+const defaultRuntimeSettings: RuntimeSettingsForm = {
+  OPENAI_API_KEY: "",
+  OPENAI_TEXT_MODEL: "gpt-4.1-mini",
+  OPENAI_IMAGE_MODEL: "gpt-image-2",
+  OPENAI_IMAGE_QUALITY: "high",
+  ENABLE_OPENAI_VIDEO: "true",
+  OPENAI_VIDEO_MODEL: "sora-2-pro",
+  META_PAGE_ACCESS_TOKEN: "",
+  META_PAGE_ID: "",
+  META_INSTAGRAM_BUSINESS_ID: "",
+  PUBLIC_MEDIA_BASE_URL: "",
+  MEDIA_BUCKET: "creative-media",
+};
+
+function RuntimeSettingsPanel({ onSaved }: { onSaved: () => Promise<void> }) {
+  const { session } = useAuth();
+  const [form, setForm] = useState<RuntimeSettingsForm>(defaultRuntimeSettings);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function setField(field: keyof RuntimeSettingsForm, value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function saveRuntimeSettings(event: FormEvent) {
+    event.preventDefault();
+    if (!session) return;
+    setSaving(true);
+    setError("");
+    try {
+      const settings = Object.fromEntries(
+        Object.entries(form).filter(([, value]) => String(value ?? "").trim().length > 0),
+      );
+      await callEdgeFunction("admin-save-settings", session.access_token, { settings });
+      toast.success("Credenciais salvas no backend. Testando conexões...");
+      setForm((current) => ({ ...current, OPENAI_API_KEY: "", META_PAGE_ACCESS_TOKEN: "" }));
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao salvar credenciais.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={saveRuntimeSettings} className="mb-5 rounded-3xl border border-primary/20 bg-card p-5 shadow-soft">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-lg font-bold">Configurar credenciais pelo painel</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Atalho de produção: os valores são salvos em runtime_secrets e usados pelas Edge Functions. As chaves não são retornadas para a tela.
+          </p>
+        </div>
+        <Button disabled={saving} className="rounded-full bg-gradient-primary text-primary-foreground">
+          {saving ? "Salvando..." : "Salvar credenciais"}
+        </Button>
+      </div>
+      {error ? (
+        <div className="mt-4">
+          <ErrorState message={error} />
+        </div>
+      ) : null}
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">OpenAI API Key</span>
+          <Input
+            type="password"
+            value={form.OPENAI_API_KEY}
+            onChange={(event) => setField("OPENAI_API_KEY", event.target.value)}
+            placeholder="sk-..."
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">Modelo texto</span>
+          <Input
+            value={form.OPENAI_TEXT_MODEL}
+            onChange={(event) => setField("OPENAI_TEXT_MODEL", event.target.value)}
+            placeholder="gpt-4.1-mini"
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">Modelo imagem</span>
+          <Input
+            value={form.OPENAI_IMAGE_MODEL}
+            onChange={(event) => setField("OPENAI_IMAGE_MODEL", event.target.value)}
+            placeholder="gpt-image-2"
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">Qualidade imagem</span>
+          <Input
+            value={form.OPENAI_IMAGE_QUALITY}
+            onChange={(event) => setField("OPENAI_IMAGE_QUALITY", event.target.value)}
+            placeholder="high"
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">Ativar vídeo IA</span>
+          <Input
+            value={form.ENABLE_OPENAI_VIDEO}
+            onChange={(event) => setField("ENABLE_OPENAI_VIDEO", event.target.value)}
+            placeholder="true"
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">Modelo vídeo</span>
+          <Input
+            value={form.OPENAI_VIDEO_MODEL}
+            onChange={(event) => setField("OPENAI_VIDEO_MODEL", event.target.value)}
+            placeholder="sora-2-pro"
+          />
+        </label>
+        <label className="space-y-2 md:col-span-2">
+          <span className="text-sm font-semibold">Meta Page Access Token</span>
+          <Input
+            type="password"
+            value={form.META_PAGE_ACCESS_TOKEN}
+            onChange={(event) => setField("META_PAGE_ACCESS_TOKEN", event.target.value)}
+            placeholder="EAA..."
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">Facebook Page ID</span>
+          <Input
+            value={form.META_PAGE_ID}
+            onChange={(event) => setField("META_PAGE_ID", event.target.value)}
+            placeholder="ID da página"
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">Instagram Business ID</span>
+          <Input
+            value={form.META_INSTAGRAM_BUSINESS_ID}
+            onChange={(event) => setField("META_INSTAGRAM_BUSINESS_ID", event.target.value)}
+            placeholder="ID do Instagram Business"
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">Bucket de mídia</span>
+          <Input
+            value={form.MEDIA_BUCKET}
+            onChange={(event) => setField("MEDIA_BUCKET", event.target.value)}
+            placeholder="creative-media"
+          />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-semibold">URL pública das mídias</span>
+          <Input
+            value={form.PUBLIC_MEDIA_BASE_URL}
+            onChange={(event) => setField("PUBLIC_MEDIA_BASE_URL", event.target.value)}
+            placeholder="https://.../storage/v1/object/public/creative-media"
+          />
+        </label>
+      </div>
+      <p className="mt-4 text-xs text-muted-foreground">
+        SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY continuam nos Secrets da Supabase Function; eles são necessários para o painel conseguir salvar estas configurações.
+      </p>
+    </form>
   );
 }
 

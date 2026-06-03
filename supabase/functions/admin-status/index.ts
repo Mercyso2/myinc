@@ -1,10 +1,14 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { loadRuntimeConfig, publicRuntimeStatus } from "../_shared/runtime-config.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Max-Age": "86400",
 };
+
 const tables = [
   "app_users",
   "brands",
@@ -19,11 +23,10 @@ const tables = [
   "campaigns",
   "brand_color_palette",
   "system_logs",
+  "runtime_secrets",
 ];
 const buckets = ["brand-assets", "creative-media", "library"];
-function boolEnv(name: string) {
-  return Boolean(Deno.env.get(name));
-}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -31,66 +34,95 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function bearer(req: Request) {
+  return (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+}
+
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers: corsHeaders });
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!supabaseUrl || !serviceRole)
-      return json({ ok: false, error: "SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY ausentes." }, 500);
-    const admin = createClient(supabaseUrl, serviceRole);
-    const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
-    const { data: userData } = await admin.auth.getUser(token);
+    if (!supabaseUrl || !serviceRole) {
+      return json({
+        ok: false,
+        admin: false,
+        error: "SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY ausente nos Secrets da Edge Function.",
+        environment: { supabaseUrl: Boolean(supabaseUrl), serviceRole: Boolean(serviceRole) },
+      }, 500);
+    }
+
+    const admin = createClient(supabaseUrl, serviceRole, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const token = bearer(req);
+    if (!token) return json({ ok: false, admin: false, error: "Token ausente." }, 401);
+
+    const { data: userData, error: userError } = await admin.auth.getUser(token);
+    if (userError || !userData.user) {
+      return json({ ok: false, admin: false, error: "Token inválido ou sessão expirada.", detail: userError?.message ?? null }, 401);
+    }
+
+    const userId = userData.user.id;
+    const userEmail = userData.user.email ?? "";
     const { data: profile } = await admin
       .from("app_users")
-      .select("role,status")
-      .eq("auth_user_id", userData.user?.id)
+      .select("id,email,role,status,auth_user_id,brand_id")
+      .or(`auth_user_id.eq.${userId},email.eq.${userEmail}`)
       .maybeSingle();
-    const isAdmin = profile?.role === "admin" && profile?.status !== "disabled";
-    if (!isAdmin)
-      return json({ ok: false, admin: false, error: "Usuário atual não é admin." }, 403);
 
+    const allowed = profile && profile.status !== "disabled" && profile.status !== "inactive";
+    if (!allowed) {
+      return json({ ok: false, admin: false, error: "Usuário sem perfil ativo em app_users.", user: { id: userId, email: userEmail }, profile: profile ?? null }, 403);
+    }
+
+    const runtime = await loadRuntimeConfig(admin);
     const tableStatus: Record<string, boolean> = {};
     await Promise.all(
       tables.map(async (table) => {
-        const { error } = await admin
-          .from(table)
-          .select("*", { count: "exact", head: true })
-          .limit(1);
+        const { error } = await admin.from(table).select("*", { count: "exact", head: true }).limit(1);
         tableStatus[table] = !error;
       }),
     );
-    const { data: bucketRows } = await admin.storage.listBuckets();
-    const bucketSet = new Set((bucketRows ?? []).map((bucket) => bucket.name));
-    const storageStatus = Object.fromEntries(
-      buckets.map((bucket) => [bucket, bucketSet.has(bucket)]),
-    );
+
+    let storageStatus: Record<string, boolean> = {};
+    try {
+      const { data: bucketRows } = await admin.storage.listBuckets();
+      const bucketSet = new Set((bucketRows ?? []).map((bucket) => bucket.name));
+      storageStatus = Object.fromEntries(buckets.map((bucket) => [bucket, bucketSet.has(bucket)]));
+    } catch {
+      storageStatus = Object.fromEntries(buckets.map((bucket) => [bucket, false]));
+    }
+
     const connected = Object.values(tableStatus).some(Boolean);
     return json({
-      ok: connected && Object.values(tableStatus).every(Boolean),
-      admin: true,
+      ok: true,
+      admin: profile?.role === "admin",
+      user: { id: userId, email: userEmail },
+      profile,
       environment: {
-        openaiApiKey: boolEnv("OPENAI_API_KEY"),
-        openaiTextModel: Deno.env.get("OPENAI_TEXT_MODEL") ?? null,
-        openaiImageModel: Deno.env.get("OPENAI_IMAGE_MODEL") ?? null,
-        metaPageAccessToken: boolEnv("META_PAGE_ACCESS_TOKEN"),
-        metaPageId: boolEnv("META_PAGE_ID"),
-        metaInstagramBusinessId: boolEnv("META_INSTAGRAM_BUSINESS_ID"),
-        publicMediaBaseUrl: boolEnv("PUBLIC_MEDIA_BASE_URL"),
+        supabaseUrl: Boolean(supabaseUrl),
+        serviceRole: Boolean(serviceRole),
+        ...publicRuntimeStatus(runtime),
       },
       database: { connected, tables: tableStatus },
       storage: storageStatus,
       edgeFunctions: {
         adminStatus: true,
+        adminSaveSettings: true,
+        adminUsers: true,
+        generateImage: true,
+        generatePostContent: true,
+        generateVideo: true,
         processProductionQueue: true,
         processPublishQueue: true,
+        publishMeta: true,
         metaTestConnection: true,
       },
     });
   } catch (error) {
-    return json(
-      { ok: false, error: error instanceof Error ? error.message : "Erro desconhecido" },
-      500,
-    );
+    return json({ ok: false, admin: false, error: error instanceof Error ? error.message : String(error) }, 500);
   }
 });
