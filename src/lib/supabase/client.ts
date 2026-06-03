@@ -52,6 +52,15 @@ function getHeaders(token?: string, prefer = "return=representation") {
   };
 }
 
+function getFunctionHeaders(token?: string) {
+  const { anonKey } = requireSupabaseEnv();
+  return {
+    apikey: anonKey,
+    Authorization: `Bearer ${token ?? anonKey}`,
+    "Content-Type": "application/json",
+  };
+}
+
 async function parseJson(response: Response) {
   const text = await response.text();
   if (!text) return null;
@@ -176,7 +185,7 @@ export async function callEdgeFunction<TResponse>(
   const { url } = requireSupabaseEnv();
   const response = await fetch(`${url}/functions/v1/${functionName}`, {
     method: "POST",
-    headers: getHeaders(token),
+    headers: getFunctionHeaders(token),
     body: JSON.stringify(payload ?? {}),
   });
   const data = await parseJson(response);

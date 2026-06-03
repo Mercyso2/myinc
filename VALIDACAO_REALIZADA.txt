@@ -1,0 +1,7 @@
+Validação executada neste ambiente:
+
+npm run typecheck -- --pretty false
+Resultado: OK, sem erros TypeScript.
+
+Observação: o build completo pode depender de reinstalar node_modules no Windows/Vercel.
+Na Vercel, use npm ci e build normal.

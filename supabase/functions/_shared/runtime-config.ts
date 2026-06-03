@@ -28,10 +28,45 @@ export type RuntimeConfig = Record<string, string | null>;
 type SupabaseLike = {
   from: (table: string) => {
     select: (columns: string) => {
-      in: (column: string, values: readonly string[]) => Promise<{ data: Array<{ key: string; value: string }> | null; error: { message?: string } | null }>;
+      in: (
+        column: string,
+        values: readonly string[],
+      ) => Promise<{
+        data: Array<{ key: string; value: string }> | null;
+        error: { message?: string } | null;
+      }>;
     };
   };
 };
+
+export function getCorsHeaders(req: Request) {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers":
+      req.headers.get("Access-Control-Request-Headers") ||
+      "authorization, x-client-info, apikey, content-type, prefer, x-supabase-api-version",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin, Access-Control-Request-Headers",
+  };
+}
+
+export function json(req: Request, body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...getCorsHeaders(req),
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export function options(req: Request) {
+  return new Response("ok", {
+    status: 200,
+    headers: getCorsHeaders(req),
+  });
+}
 
 export async function loadRuntimeConfig(supabase: SupabaseLike): Promise<RuntimeConfig> {
   const config: RuntimeConfig = {};
@@ -41,10 +76,7 @@ export async function loadRuntimeConfig(supabase: SupabaseLike): Promise<Runtime
   }
 
   try {
-    const { data, error } = await supabase
-      .from("runtime_secrets")
-      .select("key,value")
-      .in("key", RUNTIME_KEYS);
+    const { data, error } = await supabase.from("runtime_secrets").select("key,value").in("key", RUNTIME_KEYS);
 
     if (!error && Array.isArray(data)) {
       for (const row of data) {
@@ -54,7 +86,7 @@ export async function loadRuntimeConfig(supabase: SupabaseLike): Promise<Runtime
       }
     }
   } catch {
-    // Table may not exist yet. Edge Functions still work with Deno.env fallbacks.
+    // A tabela pode ainda não existir. Nesse caso as Edge Functions usam Deno.env.
   }
 
   return config;
