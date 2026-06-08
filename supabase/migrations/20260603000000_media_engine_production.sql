@@ -187,9 +187,11 @@ create table if not exists public.post_versions (
   post_id uuid not null references public.posts(id) on delete cascade,
   version_label text not null default 'v1',
   caption text null,
+  image_prompt text null,
   media_url text null,
   output_json jsonb null,
   quality_score int null,
+  human_feedback text null,
   is_current boolean not null default false,
   archived_at timestamptz null,
   deleted_at timestamptz null,
@@ -237,6 +239,7 @@ create table if not exists public.media_assets (
   bucket text null,
   path text null,
   url text null,
+  preview_url text null,
   source_url text null,
   public_url text null,
   mime_type text null,
@@ -252,6 +255,10 @@ create table if not exists public.media_assets (
   ai_allowed boolean not null default false,
   ai_usage_rule text null,
   metadata jsonb null,
+  storage_bucket text null,
+  storage_path text null,
+  is_final boolean not null default false,
+  used_in_publish boolean not null default false,
   uploaded_at timestamptz not null default now(),
   archived_at timestamptz null,
   deleted_at timestamptz null,
@@ -451,7 +458,7 @@ values (
 on conflict (id) do update set
   public = true,
   file_size_limit = 104857600,
-  allowed_mime_types = array['image/png', 'image/jpeg', 'image/webp', 'video/mp4', 'video/quicktime'];
+  allowed_mime_types = array['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/quicktime'];
 
 insert into storage.buckets (
   id,

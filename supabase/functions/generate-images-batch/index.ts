@@ -26,9 +26,12 @@ serve(async (req) => {
       postIds = (data ?? []).map((row) => row.id);
     }
 
+    const maxPerRun = Math.max(1, Math.min(8, Number(payload.limit ?? 5)));
+    const selectedPostIds = postIds.slice(0, maxPerRun);
+    const remaining = Math.max(0, postIds.length - selectedPostIds.length);
     const results: unknown[] = [];
     let generated = 0;
-    for (const postId of postIds) {
+    for (const postId of selectedPostIds) {
       try {
         const result = await callFunction(req, "generate-image", { postId });
         results.push({ postId, ok: true, result });
@@ -41,7 +44,26 @@ serve(async (req) => {
         });
       }
     }
-    return json(req, { ok: true, processed: postIds.length, generated, results });
+    const responseBody = {
+      ok: generated > 0,
+      processed: selectedPostIds.length,
+      requested: postIds.length,
+      generated,
+      remaining,
+      results,
+    };
+    if (selectedPostIds.length && generated === 0) {
+      return json(
+        req,
+        {
+          ...responseBody,
+          error:
+            "Nenhuma imagem foi gerada. Veja o primeiro erro em results ou em system_logs/imagem.",
+        },
+        400,
+      );
+    }
+    return json(req, responseBody);
   } catch (error) {
     return errorJson(req, error);
   }

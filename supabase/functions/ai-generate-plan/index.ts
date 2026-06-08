@@ -41,6 +41,55 @@ function fallbackIdeas(payload: Record<string, unknown>, count: number) {
   }));
 }
 
+async function generateOpenAiPlan(
+  openAiKey: string,
+  model: string,
+  payload: Record<string, unknown>,
+  totalPosts: number,
+) {
+  const batchSize = 10;
+  const ideas: Record<string, unknown>[] = [];
+  const strategies: string[] = [];
+  const batches = Math.ceil(totalPosts / batchSize);
+
+  for (let batch = 0; batch < batches; batch++) {
+    const count = Math.min(batchSize, totalPosts - ideas.length);
+    const prompt = `Crie um bloco de planejamento editorial mensal premium para a MYINC.
+Dados: ${JSON.stringify(payload)}
+Bloco: ${batch + 1}/${batches}. Ideias ja criadas antes deste bloco: ${ideas.length}.
+Retorne somente JSON valido com:
+{"strategy":"","ideas":[{"title":"","headline":"","short_text":"","cta":"","visual_idea":"","initial_prompt":"","theme":"","objective":"","channel":"","format":"","suggested_at":"","priority":1,"predicted_score":90}]}
+Gere exatamente ${count} ideias novas neste bloco. Nao repita temas. Use portugues do Brasil, tom premium imobiliario, formatos variados, CTAs claros, restricoes de marca e ideias visuais executaveis.`;
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${openAiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: "Voce e estrategista senior de social media. Responda JSON valido.",
+          },
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error?.message ?? JSON.stringify(data));
+    const parsed = parseJsonObject(data.choices?.[0]?.message?.content ?? "{}");
+    if (parsed.strategy) strategies.push(String(parsed.strategy));
+    if (Array.isArray(parsed.ideas)) {
+      ideas.push(...(parsed.ideas as Record<string, unknown>[]).slice(0, count));
+    }
+  }
+
+  return {
+    strategy: strategies.filter(Boolean).join("\n\n"),
+    ideas: ideas.slice(0, totalPosts),
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return options(req);
   const supabase = serviceClient();
@@ -73,29 +122,7 @@ serve(async (req) => {
     } else {
       const openAiKey = requiredCfg(runtime, "OPENAI_API_KEY", "Planejamento mensal");
       const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-5.5");
-      const prompt = `Crie um planejamento editorial mensal premium para a MYINC.
-Dados: ${JSON.stringify(payload)}
-Retorne somente JSON valido com:
-{"strategy":"","ideas":[{"title":"","headline":"","short_text":"","cta":"","visual_idea":"","initial_prompt":"","theme":"","objective":"","channel":"","format":"","suggested_at":"","priority":1,"predicted_score":90}]}
-Gere exatamente ${totalPosts} ideias. Use portugues do Brasil, tom premium imobiliario, formatos variados, CTAs claros, restricoes de marca e ideias visuais executaveis.`;
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${openAiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          response_format: { type: "json_object" },
-          messages: [
-            {
-              role: "system",
-              content: "Voce e estrategista senior de social media. Responda JSON valido.",
-            },
-            { role: "user", content: prompt },
-          ],
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.error?.message ?? JSON.stringify(data));
-      planPayload = parseJsonObject(data.choices?.[0]?.message?.content ?? "{}");
+      planPayload = await generateOpenAiPlan(openAiKey, model, payload, totalPosts);
     }
 
     const { data: monthlyPlan, error: planError } = await supabase

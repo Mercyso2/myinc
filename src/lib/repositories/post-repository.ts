@@ -77,13 +77,22 @@ export function publishPostNow(token: string, postId: string) {
 
 export function generateImagesBatch(
   token: string,
-  payload: { brandId?: string; postIds?: string[]; onlyMissing?: boolean; force?: boolean },
+  payload: {
+    brandId?: string;
+    postIds?: string[];
+    onlyMissing?: boolean;
+    force?: boolean;
+    limit?: number;
+  },
 ) {
-  return callEdgeFunction<{ ok: true; processed: number; generated: number; results: unknown[] }>(
-    "generate-images-batch",
-    token,
-    payload,
-  );
+  return callEdgeFunction<{
+    ok: true;
+    processed: number;
+    requested: number;
+    generated: number;
+    remaining: number;
+    results: unknown[];
+  }>("generate-images-batch", token, payload);
 }
 
 export function generateVideosBatch(

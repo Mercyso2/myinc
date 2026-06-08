@@ -107,11 +107,19 @@ function Conteudos() {
     setLoading(true);
     setError("");
     try {
-      await action();
-      toast.success(label);
+      const result = await action();
+      const successMessage =
+        result &&
+        typeof result === "object" &&
+        "message" in result &&
+        typeof result.message === "string"
+          ? result.message
+          : label;
+      toast.success(successMessage);
       if (options.closeModal) setSelected(null);
       await load();
     } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Acao do estudio falhou.");
       setError(err instanceof Error ? err.message : "Ação do estúdio falhou.");
     } finally {
       setLoading(false);
@@ -160,11 +168,20 @@ function Conteudos() {
       toast.info("Todos os posts ativos já possuem mídia.");
       return;
     }
-    await generateImagesBatch(session.access_token, {
+    const result = await generateImagesBatch(session.access_token, {
       brandId: profile?.brand_id ?? targets[0]?.brandId,
       postIds: targets.map((post) => post.id),
       onlyMissing: true,
+      limit: 5,
     });
+    if (!result.generated) throw new Error("Nenhuma imagem foi gerada pela fila.");
+    return {
+      message: `${result.generated} imagem(ns) gerada(s).${
+        result.remaining
+          ? ` Ainda restam ${result.remaining}; clique novamente para continuar.`
+          : ""
+      }`,
+    };
   }
 
   async function generateAllVideos() {

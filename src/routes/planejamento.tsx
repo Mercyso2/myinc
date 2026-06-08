@@ -69,6 +69,17 @@ function toInputDate(value?: string | null) {
   return date.toISOString().slice(0, 16);
 }
 
+async function runInSmallBatches<T>(
+  items: T[],
+  worker: (item: T) => Promise<unknown>,
+  batchSize = 5,
+) {
+  for (let index = 0; index < items.length; index += batchSize) {
+    const slice = items.slice(index, index + batchSize);
+    await Promise.all(slice.map((item) => worker(item)));
+  }
+}
+
 function Planejamento() {
   const { session, profile } = useAuth();
   const [step, setStep] = useState<WizardStep>(0);
@@ -203,8 +214,8 @@ function Planejamento() {
     setLoading(true);
     setError("");
     try {
-      await Promise.all(
-        activeIdeas.map((idea) => updateIdea(idea.id, { status: "tema_aprovado" })),
+      await runInSmallBatches(activeIdeas, (idea) =>
+        updateIdea(idea.id, { status: "tema_aprovado" }),
       );
       toast.success("Todos os temas ativos foram aprovados.");
     } catch (err) {
@@ -245,14 +256,12 @@ function Planejamento() {
         status: "tema_aprovado",
       }));
       const posts = await postRepository.upsert(session.access_token, rows, "source_idea_id");
-      await Promise.all(
-        posts.map((post) =>
-          post.source_idea_id
-            ? postIdeaRepository.update(session.access_token, post.source_idea_id, {
-                converted_post_id: post.id,
-              } as Partial<PostIdeaRow>)
-            : Promise.resolve(),
-        ),
+      await runInSmallBatches(posts, (post) =>
+        post.source_idea_id
+          ? postIdeaRepository.update(session.access_token, post.source_idea_id, {
+              converted_post_id: post.id,
+            } as Partial<PostIdeaRow>)
+          : Promise.resolve(),
       );
       await createProductionBatch(session.access_token, {
         brandId: await resolveBrandId(),
@@ -301,7 +310,7 @@ function Planejamento() {
               disabled={loading}
               onClick={generatePlan}
             >
-              <Wand2 className="h-4 w-4" /> Gerar 30 ideias
+              <Wand2 className="h-4 w-4" /> Gerar {totalPosts} ideias
             </Button>
           </div>
         }

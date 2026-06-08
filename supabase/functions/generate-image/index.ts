@@ -141,28 +141,42 @@ serve(async (req) => {
     const { data: publicUrl } = supabase.storage.from(mediaBucket).getPublicUrl(path);
     const mediaUrl = publicUrl.publicUrl;
 
-    const { data: mediaAsset } = await supabase
+    const { data: mediaAsset, error: mediaAssetError } = await supabase
       .from("media_assets")
       .insert({
         brand_id: post.brand_id,
         post_id: post.id,
         name: `Criativo ${post.title}`,
+        type: "Imagem gerada",
         media_type: "Imagem gerada",
+        bucket: mediaBucket,
+        path,
         url: mediaUrl,
+        public_url: mediaUrl,
         preview_url: mediaUrl,
+        mime_type: "image/png",
+        size_bytes: bytes.byteLength,
         status: "ativo",
         origin: `openai:${usedModel}`,
+        usage_context: "post_image",
         ai_allowed: true,
         storage_bucket: mediaBucket,
         storage_path: path,
         is_final: true,
         used_in_publish: false,
         notes: finalPrompt,
+        metadata: {
+          image_model: usedModel,
+          image_size: openAiSize(post.format),
+          prompt: finalPrompt,
+        },
       })
       .select()
       .single();
+    if (mediaAssetError) throw mediaAssetError;
 
-    await supabase.from("post_versions").insert({
+    const { error: versionError } = await supabase.from("post_versions").insert({
+      brand_id: post.brand_id,
       post_id: post.id,
       version_label: `V${Date.now()}`,
       caption: post.caption,
@@ -175,6 +189,7 @@ serve(async (req) => {
         media_url: mediaUrl,
       },
     });
+    if (versionError) throw versionError;
 
     const { data: updatedPost, error: updateError } = await supabase
       .from("posts")
