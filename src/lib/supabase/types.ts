@@ -130,6 +130,10 @@ export type PostRow = RowBase & {
   creative_brief?: string | null;
   media_url?: string | null;
   video_url?: string | null;
+  video_job_id?: string | null;
+  video_status?: string | null;
+  video_progress?: number | null;
+  video_poster_url?: string | null;
   carousel_media_urls?: string[] | null;
   quality_score?: number | null;
   quality_review?: Json;

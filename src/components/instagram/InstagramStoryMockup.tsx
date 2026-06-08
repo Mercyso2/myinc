@@ -16,10 +16,19 @@ export function InstagramStoryMockup({
   post: InstagramPreviewPost;
   label?: string;
 }) {
+  const isVideo = Boolean(post.mediaUrl && /\.(mp4|webm|mov)(\?|$)/i.test(post.mediaUrl));
   return (
     <div className="rounded-3xl border border-border bg-card p-3 shadow-soft">
       <div className="relative mx-auto aspect-[9/16] max-h-[620px] overflow-hidden rounded-[2rem] bg-muted">
-        {post.mediaUrl ? (
+        {isVideo ? (
+          <video
+            src={post.mediaUrl ?? ""}
+            className="h-full w-full object-cover"
+            controls
+            playsInline
+            preload="metadata"
+          />
+        ) : post.mediaUrl ? (
           <img src={post.mediaUrl} alt={post.title} className="h-full w-full object-cover" />
         ) : (
           <InstagramPlaceholder />

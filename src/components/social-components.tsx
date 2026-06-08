@@ -345,10 +345,22 @@ export function PostCard({
   onPublish?: () => void;
   onArchive?: () => void;
 }) {
+  const isCarousel = post.format.toLowerCase().includes("carrossel");
+  const isVideo =
+    post.format.toLowerCase().includes("reels") ||
+    post.format.toLowerCase().includes("video") ||
+    post.format.toLowerCase().includes("vÃ­deo");
+  const mediaCount = isCarousel
+    ? post.carouselMediaUrls?.length || 0
+    : isVideo
+      ? post.videoStoryboardUrls?.length || (post.mediaUrl ? 1 : 0)
+      : post.mediaUrl
+        ? 1
+        : 0;
   return (
-    <Card className="overflow-hidden rounded-3xl border-border bg-card shadow-soft transition hover:-translate-y-0.5 hover:shadow-elevated">
-      <div className="grid gap-0 sm:grid-cols-[170px_1fr]">
-        <div className="bg-muted p-3">
+    <Card className="overflow-hidden rounded-2xl border-border bg-card shadow-soft transition hover:-translate-y-0.5 hover:shadow-elevated">
+      <div className="grid gap-0 sm:grid-cols-[230px_minmax(0,1fr)]">
+        <div className="bg-background/70 p-4">
           <PostPreview post={post} />
         </div>
         <CardContent className="p-5">
@@ -357,6 +369,18 @@ export function PostCard({
             <StatusBadge status={post.status} />
             <ScoreBadge score={post.qualityScore} />
             <Badge variant="outline">{post.format}</Badge>
+          </div>
+          <div className="mt-3 grid gap-2 rounded-2xl border border-border bg-background p-3 text-xs text-muted-foreground sm:grid-cols-3">
+            <span>
+              <b className="text-foreground">{mediaCount}</b>{" "}
+              {isCarousel ? "pÃ¡ginas" : isVideo ? "ativos vÃ­deo" : "mÃ­dia"}
+            </span>
+            <span>
+              <b className="text-foreground">{post.qualityScore || 0}</b>/100 score
+            </span>
+            <span className={post.mediaUrl ? "text-success" : "text-warning"}>
+              {post.mediaUrl ? "mÃ­dia pronta" : "aguarda mÃ­dia"}
+            </span>
           </div>
           <h3 className="mt-4 line-clamp-2 text-lg font-bold">{post.title}</h3>
           <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">

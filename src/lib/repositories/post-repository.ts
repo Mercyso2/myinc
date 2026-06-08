@@ -97,13 +97,16 @@ export function generateImagesBatch(
 
 export function generateVideosBatch(
   token: string,
-  payload: { brandId?: string; postIds?: string[]; force?: boolean },
+  payload: { brandId?: string; postIds?: string[]; force?: boolean; limit?: number },
 ) {
-  return callEdgeFunction<{ ok: true; processed: number; generated: number; results: unknown[] }>(
-    "generate-videos-batch",
-    token,
-    payload,
-  );
+  return callEdgeFunction<{
+    ok: true;
+    processed: number;
+    requested: number;
+    generated: number;
+    remaining: number;
+    results: unknown[];
+  }>("generate-videos-batch", token, payload);
 }
 
 export function runAutonomousProduction(

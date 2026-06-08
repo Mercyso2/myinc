@@ -29,6 +29,7 @@ export function mapVersion(row: PostVersionRow) {
     caption: row.caption ?? "",
     mediaUrl: row.media_url ?? "",
     carouselMediaUrls: arrayFromJson(output.carousel_media_urls),
+    videoStoryboardUrls: arrayFromJson(output.video_storyboard_urls),
     qualityScore: row.quality_score ?? 0,
     createdAt: new Date(row.created_at).toLocaleString("pt-BR"),
   };
@@ -46,7 +47,11 @@ export function postRowToSocialPost(
       : {}
   ) as Record<string, unknown>;
   const carouselFromVersion = arrayFromJson(output.carousel_media_urls);
-  const videoStoryboardUrls = arrayFromJson(output.video_storyboard_urls);
+  const videoStoryboardUrls = Array.isArray(
+    (row as unknown as { video_storyboard_urls?: unknown }).video_storyboard_urls,
+  )
+    ? ((row as unknown as { video_storyboard_urls?: string[] }).video_storyboard_urls ?? [])
+    : arrayFromJson(output.video_storyboard_urls);
   const storySequence = Array.isArray(output.story_sequence) ? output.story_sequence : [];
   const qualityReview =
     (row as unknown as { quality_review?: unknown }).quality_review &&

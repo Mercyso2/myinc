@@ -190,11 +190,20 @@ function Conteudos() {
       toast.info("Nenhum Reels/Vídeo ativo para gerar.");
       return;
     }
-    await generateVideosBatch(session.access_token, {
+    const result = await generateVideosBatch(session.access_token, {
       brandId: profile?.brand_id ?? videoTargets[0]?.brandId,
       postIds: videoTargets.map((post) => post.id),
       force: true,
+      limit: 2,
     });
+    if (!result.generated) throw new Error("Nenhum vÃ­deo/Reels foi gerado pela fila.");
+    return {
+      message: `${result.generated} vÃ­deo(s)/Reels processado(s).${
+        result.remaining
+          ? ` Ainda restam ${result.remaining}; clique novamente para continuar.`
+          : ""
+      }`,
+    };
   }
 
   async function renderAllTemplates() {

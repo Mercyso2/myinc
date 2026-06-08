@@ -25,9 +25,12 @@ serve(async (req) => {
       postIds = (data ?? []).map((row) => row.id);
     }
 
+    const maxPerRun = Math.max(1, Math.min(3, Number(payload.limit ?? 2)));
+    const selectedPostIds = postIds.slice(0, maxPerRun);
+    const remaining = Math.max(0, postIds.length - selectedPostIds.length);
     const results: unknown[] = [];
     let generated = 0;
-    for (const postId of postIds) {
+    for (const postId of selectedPostIds) {
       try {
         const result = await callFunction(req, "generate-video", { postId, force: payload.force });
         results.push({ postId, ok: true, result });
@@ -40,7 +43,25 @@ serve(async (req) => {
         });
       }
     }
-    return json(req, { ok: true, processed: postIds.length, generated, results });
+    const responseBody = {
+      ok: generated > 0,
+      processed: selectedPostIds.length,
+      requested: postIds.length,
+      generated,
+      remaining,
+      results,
+    };
+    if (selectedPostIds.length && generated === 0) {
+      return json(
+        req,
+        {
+          ...responseBody,
+          error: "Nenhum video foi gerado. Veja o primeiro erro em results ou system_logs/video.",
+        },
+        400,
+      );
+    }
+    return json(req, responseBody);
   } catch (error) {
     return errorJson(req, error);
   }
