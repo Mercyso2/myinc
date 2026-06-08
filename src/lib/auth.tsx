@@ -10,8 +10,11 @@ import {
 import { toast } from "sonner";
 import {
   isSupabaseConfigured,
+  isSupabaseAuthError,
+  refreshSession,
   signInWithPassword,
   signOut,
+  SUPABASE_AUTH_INVALID_EVENT,
   type SupabaseSession,
 } from "@/lib/supabase/client";
 
@@ -80,6 +83,11 @@ function isActiveStatus(status?: string | null) {
   return !status || status === "active";
 }
 
+function shouldRefreshSession(session: SupabaseSession) {
+  if (!session.expires_at || !session.refresh_token) return false;
+  return session.expires_at * 1000 <= Date.now() + 60_000;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SupabaseSession | null>(null);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
@@ -134,16 +142,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setProfile(nextProfile);
     } catch (err) {
+      if (isSupabaseAuthError(err)) {
+        setSession(null);
+        setProfile(null);
+        writeStoredSession(null);
+        toast.error("Sessão expirada. Entre novamente para reconectar ao Supabase.");
+        return;
+      }
       console.error("Falha ao carregar perfil app_users:", err);
       setProfile({ id: nextSession.user.id, role: "user", status: "active" });
     }
   }, []);
 
   useEffect(() => {
+    function handleInvalidAuth() {
+      setSession(null);
+      setProfile(null);
+      writeStoredSession(null);
+      toast.error("Sessão expirada. Entre novamente para reconectar ao Supabase.");
+    }
+
+    window.addEventListener(SUPABASE_AUTH_INVALID_EVENT, handleInvalidAuth);
+    return () => window.removeEventListener(SUPABASE_AUTH_INVALID_EVENT, handleInvalidAuth);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function restoreSession() {
-      const stored = readStoredSession();
+      let stored = readStoredSession();
 
       if (!stored) {
         if (!cancelled) {
@@ -152,6 +179,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsLoading(false);
         }
         return;
+      }
+
+      if (
+        !(stored as LocalAdminSession).localOnly &&
+        isSupabaseConfigured &&
+        shouldRefreshSession(stored)
+      ) {
+        try {
+          stored = await refreshSession(stored);
+          writeStoredSession(stored);
+        } catch {
+          writeStoredSession(null);
+          if (!cancelled) {
+            setSession(null);
+            setProfile(null);
+            setIsLoading(false);
+          }
+          return;
+        }
       }
 
       if (!cancelled) {
@@ -213,8 +259,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
 
       async logout() {
-        if (session && !(session as LocalAdminSession).localOnly && isSupabaseConfigured) {
-          await signOut(session);
+        try {
+          if (session && !(session as LocalAdminSession).localOnly && isSupabaseConfigured) {
+            await signOut(session);
+          }
+        } catch {
+          // Mesmo com token expirado, a sessão local precisa ser encerrada.
         }
 
         setSession(null);

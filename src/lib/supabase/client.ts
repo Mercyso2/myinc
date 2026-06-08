@@ -2,6 +2,7 @@ import type { AdminCreateUserPayload } from "./types";
 
 const RAW_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+export const SUPABASE_AUTH_INVALID_EVENT = "myinc:supabase-auth-invalid";
 
 function getSupabaseUrl() {
   if (RAW_SUPABASE_URL && RAW_SUPABASE_URL !== "same-origin") return RAW_SUPABASE_URL;
@@ -91,6 +92,45 @@ function readableError(value: unknown): string {
   }
 }
 
+export function isSupabaseAuthError(error: unknown): boolean {
+  const status =
+    error instanceof SupabaseRestError
+      ? error.status
+      : typeof error === "object" && error && "status" in error
+        ? Number((error as { status?: unknown }).status)
+        : undefined;
+  const message = readableError(
+    error instanceof SupabaseRestError ? (error.details ?? error.message) : error,
+  ).toLowerCase();
+
+  return (
+    status === 401 ||
+    message.includes("invalid jwt") ||
+    message.includes("jwt expired") ||
+    message.includes("session invalid") ||
+    message.includes("sessão inválida") ||
+    message.includes("sessao invalida")
+  );
+}
+
+function notifyInvalidAuth(error: unknown) {
+  if (typeof window === "undefined" || !isSupabaseAuthError(error)) return;
+  window.dispatchEvent(
+    new CustomEvent(SUPABASE_AUTH_INVALID_EVENT, { detail: { message: readableError(error) } }),
+  );
+}
+
+function supabaseError(fallback: string, response: Response, data: unknown) {
+  const detail = readableError(data);
+  const error = new SupabaseRestError(
+    detail ? `${fallback}: ${detail}` : fallback,
+    response.status,
+    data,
+  );
+  notifyInvalidAuth(error);
+  return error;
+}
+
 async function fetchSupabase(context: string, input: string, init?: RequestInit) {
   try {
     return await fetch(input, init);
@@ -138,6 +178,26 @@ export async function signInWithPassword(
   return data as SupabaseSession;
 }
 
+export async function refreshSession(session: SupabaseSession): Promise<SupabaseSession> {
+  if (!session.refresh_token) throw new SupabaseRestError("Refresh token ausente.");
+  const { url, anonKey } = requireSupabaseEnv();
+  const response = await fetchSupabase(
+    "Renovar sessão",
+    `${url}/auth/v1/token?grant_type=refresh_token`,
+    {
+      method: "POST",
+      headers: {
+        apikey: anonKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ refresh_token: session.refresh_token }),
+    },
+  );
+  const data = await parseJson(response);
+  if (!response.ok) throw supabaseError("Sessão expirada", response, data);
+  return data as SupabaseSession;
+}
+
 export async function signOut(session: SupabaseSession) {
   const { url } = requireSupabaseEnv();
   await fetchSupabase("Logout", `${url}/auth/v1/logout`, {
@@ -152,7 +212,7 @@ export async function selectRows<T>(table: string, token: string, query = "selec
     headers: getHeaders(token),
   });
   const data = await parseJson(response);
-  if (!response.ok) throw new SupabaseRestError(`Falha ao ler ${table}.`, response.status, data);
+  if (!response.ok) throw supabaseError(`Falha ao ler ${table}.`, response, data);
   return (data ?? []) as T[];
 }
 
@@ -170,7 +230,7 @@ export async function upsertRows<T>(
     body: JSON.stringify(rows),
   });
   const data = await parseJson(response);
-  if (!response.ok) throw new SupabaseRestError(`Falha ao salvar ${table}.`, response.status, data);
+  if (!response.ok) throw supabaseError(`Falha ao salvar ${table}.`, response, data);
   return (data ?? []) as T[];
 }
 
@@ -191,8 +251,7 @@ export async function patchRow<T>(table: string, token: string, id: string, patc
     },
   );
   const data = await parseJson(response);
-  if (!response.ok)
-    throw new SupabaseRestError(`Falha ao atualizar ${table}.`, response.status, data);
+  if (!response.ok) throw supabaseError(`Falha ao atualizar ${table}.`, response, data);
   return (Array.isArray(data) ? data[0] : data) as T;
 }
 
@@ -203,8 +262,7 @@ export async function deleteRows(table: string, token: string, query: string) {
     headers: getHeaders(token, "return=minimal"),
   });
   const data = await parseJson(response);
-  if (!response.ok)
-    throw new SupabaseRestError(`Falha ao excluir ${table}.`, response.status, data);
+  if (!response.ok) throw supabaseError(`Falha ao excluir ${table}.`, response, data);
   return true;
 }
 
@@ -216,7 +274,7 @@ export async function callRpc<TResponse>(fn: string, token: string, payload?: ob
     body: JSON.stringify(payload ?? {}),
   });
   const data = await parseJson(response);
-  if (!response.ok) throw new SupabaseRestError(`RPC ${fn} retornou erro.`, response.status, data);
+  if (!response.ok) throw supabaseError(`RPC ${fn} retornou erro.`, response, data);
   return data as TResponse;
 }
 
@@ -238,11 +296,13 @@ export async function callEdgeFunction<TResponse>(
   const data = await parseJson(response);
   if (!response.ok) {
     const detail = readableError(data);
-    throw new SupabaseRestError(
+    const error = new SupabaseRestError(
       detail || `A função ${functionName} retornou erro.`,
       response.status,
       data,
     );
+    notifyInvalidAuth(error);
+    throw error;
   }
   return data as TResponse;
 }
@@ -268,7 +328,6 @@ export async function uploadStorageObject(bucket: string, path: string, token: s
     },
   );
   const data = await parseJson(response);
-  if (!response.ok)
-    throw new SupabaseRestError(`Falha ao enviar arquivo para ${bucket}.`, response.status, data);
+  if (!response.ok) throw supabaseError(`Falha ao enviar arquivo para ${bucket}.`, response, data);
   return { path, publicUrl: `${url}/storage/v1/object/public/${bucket}/${path}` };
 }
