@@ -75,8 +75,8 @@ A publicação só deve ser marcada como publicada se a Meta confirmar retorno v
 
 ### Imagens
 
-- Modelo padrão atualizado para `gpt-image-2`.
-- Fallbacks configuráveis: `gpt-image-1.5,gpt-image-1`.
+- Modelo padrão atualizado para `gpt-image-1.5`.
+- Fallbacks configuráveis: `gpt-image-1,gpt-image-1-mini`.
 - Removido falso PNG baseado em SVG.
 - Adicionada validação por assinatura de arquivo.
 - Adicionado modo rígido `AI_STRICT_MODE` / `PRODUCTION_MEDIA_STRICT`.
@@ -129,8 +129,8 @@ Copie `.env.production.example` para `.env.production` e configure:
 
 ```env
 OPENAI_API_KEY=COLE_SUA_CHAVE_OPENAI_AQUI
-OPENAI_IMAGE_MODEL=gpt-image-2
-OPENAI_IMAGE_FALLBACK_MODELS=gpt-image-1.5,gpt-image-1
+OPENAI_IMAGE_MODEL=gpt-image-1.5
+OPENAI_IMAGE_FALLBACK_MODELS=gpt-image-1,gpt-image-1-mini
 OPENAI_IMAGE_QUALITY=high
 OPENAI_IMAGE_FORMAT=png
 

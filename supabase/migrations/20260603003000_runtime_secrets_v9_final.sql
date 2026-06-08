@@ -125,8 +125,8 @@ using (bucket_id = 'creative-media');
 -- Chaves base não secretas para o painel já reconhecer defaults.
 insert into public.runtime_secrets (key, value, is_secret, updated_at)
 values
-  ('OPENAI_TEXT_MODEL', 'gpt-5.5', false, now()),
-  ('OPENAI_IMAGE_MODEL', 'gpt-image-2', false, now()),
+  ('OPENAI_TEXT_MODEL', 'gpt-5.2', false, now()),
+  ('OPENAI_IMAGE_MODEL', 'gpt-image-1.5', false, now()),
   ('OPENAI_IMAGE_QUALITY', 'high', false, now()),
   ('ENABLE_OPENAI_VIDEO', 'true', false, now()),
   ('OPENAI_VIDEO_MODEL', 'sora-2-pro', false, now()),

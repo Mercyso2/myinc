@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { stringifyError } from "../_shared/function-utils.ts";
 import { boolCfg, cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
 const corsHeaders = {
@@ -95,7 +96,7 @@ serve(async (req) => {
       body: form,
     });
     let video = await createRes.json().catch(() => ({}));
-    if (!createRes.ok) throw new Error(video?.error?.message ?? JSON.stringify(video));
+    if (!createRes.ok) throw new Error(stringifyError(video?.error ?? video));
     const videoId = video.id;
     if (!videoId) throw new Error("OpenAI Videos nao retornou id.");
 
@@ -122,7 +123,7 @@ serve(async (req) => {
         headers: { Authorization: `Bearer ${openAiKey}` },
       });
       video = await pollRes.json().catch(() => ({}));
-      if (!pollRes.ok) throw new Error(video?.error?.message ?? JSON.stringify(video));
+      if (!pollRes.ok) throw new Error(stringifyError(video?.error ?? video));
       await supabase
         .from("posts")
         .update({
@@ -250,8 +251,8 @@ serve(async (req) => {
       module: "video",
       status: "erro",
       friendly_message: "Falha ao gerar video/Reels real.",
-      technical_detail: error instanceof Error ? error.message : String(error),
+      technical_detail: stringifyError(error),
     });
-    return json({ error: error instanceof Error ? error.message : "Erro desconhecido" }, 400);
+    return json({ error: stringifyError(error) || "Erro desconhecido" }, 400);
   }
 });

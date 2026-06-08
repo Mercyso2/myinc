@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { stringifyError } from "../_shared/function-utils.ts";
 import { cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
 const corsHeaders = {
@@ -36,8 +37,8 @@ function carouselPageCount(format = "") {
 }
 
 function modelCandidates(runtime: Record<string, string | null>) {
-  const primary = cfg(runtime, "OPENAI_IMAGE_MODEL", "gpt-image-2");
-  const fallbacks = cfg(runtime, "OPENAI_IMAGE_FALLBACK_MODELS", "gpt-image-1.5,gpt-image-1")
+  const primary = cfg(runtime, "OPENAI_IMAGE_MODEL", "gpt-image-1.5");
+  const fallbacks = cfg(runtime, "OPENAI_IMAGE_FALLBACK_MODELS", "gpt-image-1,gpt-image-1-mini")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
@@ -126,7 +127,7 @@ async function generateImageBytes({
       }
       return { bytes, usedModel: model };
     }
-    errors.push(`${model}: ${imageJson?.error?.message ?? JSON.stringify(imageJson)}`);
+    errors.push(`${model}: ${stringifyError(imageJson?.error ?? imageJson)}`);
   }
   throw new Error(`Provedor de imagem nao retornou b64_json. ${errors.join(" | ")}`);
 }
@@ -344,8 +345,8 @@ serve(async (req) => {
       module: "imagem",
       status: "erro",
       friendly_message: "Falha ao gerar imagem real.",
-      technical_detail: error instanceof Error ? error.message : String(error),
+      technical_detail: stringifyError(error),
     });
-    return json({ error: error instanceof Error ? error.message : "Erro desconhecido" }, 400);
+    return json({ error: stringifyError(error) || "Erro desconhecido" }, 400);
   }
 });

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { stringifyError } from "../_shared/function-utils.ts";
 import { cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
 const corsHeaders = {
@@ -26,7 +27,7 @@ serve(async (req) => {
   );
   const runtime = await loadRuntimeConfig(supabase);
   const openAiKey = requiredCfg(runtime, "OPENAI_API_KEY", "Geração de conteúdo");
-  const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-5.5");
+  const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-5.2");
   async function log(row: Record<string, unknown>) {
     await supabase.from("system_logs").insert({ type: row.type ?? "ai", ...row });
   }
@@ -165,8 +166,8 @@ REFORCO DE QUALIDADE:
         ],
       }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(JSON.stringify(data));
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(stringifyError(data));
     const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? "{}");
     if (!parsed.caption || !parsed.image_prompt)
       throw new Error("OpenAI retornou JSON sem caption/image_prompt.");
@@ -226,8 +227,8 @@ REFORCO DE QUALIDADE:
       module: "copy",
       status: "erro",
       friendly_message: "Falha ao gerar conteúdo textual.",
-      technical_detail: error instanceof Error ? error.message : String(error),
+      technical_detail: stringifyError(error),
     });
-    return json({ error: error instanceof Error ? error.message : "Erro desconhecido" }, 400);
+    return json({ error: stringifyError(error) || "Erro desconhecido" }, 400);
   }
 });

@@ -6,7 +6,7 @@ Versão focada em produção real de mídia para social media.
 
 - Imagem não usa mais SVG falso salvo como PNG.
 - Geração de imagem valida assinatura real do arquivo.
-- Modelo padrão de imagem: `gpt-image-2`.
+- Modelo padrão de imagem: `gpt-image-1.5`.
 - Edge Function `generate-image` atualizada para API moderna.
 - Nova Edge Function `generate-video` com OpenAI Videos/Sora.
 - Reels só publica com `video_url` real.

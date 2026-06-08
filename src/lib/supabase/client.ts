@@ -71,6 +71,26 @@ async function parseJson(response: Response) {
   }
 }
 
+function readableError(value: unknown): string {
+  if (!value) return "";
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  if (typeof value !== "object") return String(value);
+
+  const record = value as Record<string, unknown>;
+  const nested = record.message ?? record.error_description ?? record.error ?? record.details;
+  if (nested && nested !== value) {
+    const nestedMessage = readableError(nested);
+    if (nestedMessage) return nestedMessage;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 async function fetchSupabase(context: string, input: string, init?: RequestInit) {
   try {
     return await fetch(input, init);
@@ -85,7 +105,7 @@ async function fetchSupabase(context: string, input: string, init?: RequestInit)
     throw new SupabaseRestError(
       `${context}: falha de rede/CORS ao acessar ${host}. Recarregue a pagina e confira VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY e CORS_ALLOW_ORIGIN nas Edge Functions.`,
       undefined,
-      { cause: error instanceof Error ? error.message : String(error), url: input },
+      { cause: readableError(error), url: input },
     );
   }
 }
@@ -217,7 +237,7 @@ export async function callEdgeFunction<TResponse>(
   );
   const data = await parseJson(response);
   if (!response.ok) {
-    const detail = typeof data === "object" && data && "error" in data ? String(data.error) : "";
+    const detail = readableError(data);
     throw new SupabaseRestError(
       detail || `A função ${functionName} retornou erro.`,
       response.status,

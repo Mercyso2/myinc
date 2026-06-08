@@ -80,8 +80,8 @@ function buildStatusFromRuntimeSecrets(rows: RuntimeSecretRow[]): AdminStatus {
     admin: true,
     environment: {
       openaiApiKey: has("OPENAI_API_KEY"),
-      openaiTextModel: get("OPENAI_TEXT_MODEL", "gpt-5.5"),
-      openaiImageModel: get("OPENAI_IMAGE_MODEL", "gpt-image-2"),
+      openaiTextModel: get("OPENAI_TEXT_MODEL", "gpt-5.2"),
+      openaiImageModel: get("OPENAI_IMAGE_MODEL", "gpt-image-1.5"),
       openaiImageQuality: get("OPENAI_IMAGE_QUALITY", "high"),
       enableOpenaiVideo: get("ENABLE_OPENAI_VIDEO", "false"),
       openaiVideoModel: get("OPENAI_VIDEO_MODEL", "sora-2-pro"),
@@ -370,8 +370,8 @@ type RuntimeSettingsForm = {
 
 const defaultRuntimeSettings: RuntimeSettingsForm = {
   OPENAI_API_KEY: "",
-  OPENAI_TEXT_MODEL: "gpt-5.5",
-  OPENAI_IMAGE_MODEL: "gpt-image-2",
+  OPENAI_TEXT_MODEL: "gpt-5.2",
+  OPENAI_IMAGE_MODEL: "gpt-image-1.5",
   OPENAI_IMAGE_QUALITY: "high",
   ENABLE_OPENAI_VIDEO: "true",
   OPENAI_VIDEO_MODEL: "sora-2-pro",
@@ -480,7 +480,7 @@ function RuntimeSettingsPanel({ onSaved }: { onSaved: () => Promise<void> }) {
           <Input
             value={form.OPENAI_TEXT_MODEL}
             onChange={(event) => setField("OPENAI_TEXT_MODEL", event.target.value)}
-            placeholder="gpt-5.5"
+            placeholder="gpt-5.2"
           />
         </label>
         <label className="space-y-2">
@@ -488,7 +488,7 @@ function RuntimeSettingsPanel({ onSaved }: { onSaved: () => Promise<void> }) {
           <Input
             value={form.OPENAI_IMAGE_MODEL}
             onChange={(event) => setField("OPENAI_IMAGE_MODEL", event.target.value)}
-            placeholder="gpt-image-2"
+            placeholder="gpt-image-1.5"
           />
         </label>
         <label className="space-y-2">

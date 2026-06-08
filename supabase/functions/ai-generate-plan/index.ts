@@ -3,9 +3,14 @@ import {
   errorJson,
   requireActiveUser,
   serviceClient,
+  stringifyError,
   systemLog,
 } from "../_shared/function-utils.ts";
 import { cfg, json, loadRuntimeConfig, options, requiredCfg } from "../_shared/runtime-config.ts";
+
+function errorMessage(value: unknown) {
+  return stringifyError(value);
+}
 
 function parseJsonObject(text: string) {
   try {
@@ -76,7 +81,7 @@ Gere exatamente ${count} ideias novas neste bloco. Nao repita temas. Use portugu
       }),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data?.error?.message ?? JSON.stringify(data));
+    if (!response.ok) throw new Error(errorMessage(data?.error?.message ?? data?.error ?? data));
     const parsed = parseJsonObject(data.choices?.[0]?.message?.content ?? "{}");
     if (parsed.strategy) strategies.push(String(parsed.strategy));
     if (Array.isArray(parsed.ideas)) {
@@ -121,7 +126,7 @@ serve(async (req) => {
       planPayload = { ideas: fallbackIdeas(payload, totalPosts) };
     } else {
       const openAiKey = requiredCfg(runtime, "OPENAI_API_KEY", "Planejamento mensal");
-      const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-5.5");
+      const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-5.2");
       planPayload = await generateOpenAiPlan(openAiKey, model, payload, totalPosts);
     }
 
@@ -188,7 +193,7 @@ serve(async (req) => {
       module: "planning",
       status: "erro",
       friendly_message: "Falha ao gerar planejamento.",
-      technical_detail: error instanceof Error ? error.message : String(error),
+      technical_detail: errorMessage(error),
     });
     return errorJson(req, error);
   }

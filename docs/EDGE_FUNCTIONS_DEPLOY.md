@@ -29,9 +29,9 @@ Configure secrets no Supabase, nunca na Vercel:
 
 ```bash
 npx supabase secrets set OPENAI_API_KEY=...
-npx supabase secrets set OPENAI_TEXT_MODEL=gpt-5.5
-npx supabase secrets set OPENAI_IMAGE_MODEL=gpt-image-2
-npx supabase secrets set OPENAI_IMAGE_FALLBACK_MODELS=gpt-image-1.5,gpt-image-1
+npx supabase secrets set OPENAI_TEXT_MODEL=gpt-5.2
+npx supabase secrets set OPENAI_IMAGE_MODEL=gpt-image-1.5
+npx supabase secrets set OPENAI_IMAGE_FALLBACK_MODELS=gpt-image-1,gpt-image-1-mini
 npx supabase secrets set OPENAI_IMAGE_QUALITY=high
 npx supabase secrets set OPENAI_IMAGE_FORMAT=png
 npx supabase secrets set ENABLE_OPENAI_VIDEO=true

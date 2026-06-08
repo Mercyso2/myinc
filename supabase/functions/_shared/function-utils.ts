@@ -7,6 +7,26 @@ export function requireEnv(name: string) {
   return value;
 }
 
+export function stringifyError(value: unknown): string {
+  if (!value) return "";
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  if (typeof value !== "object") return String(value);
+
+  const record = value as Record<string, unknown>;
+  const nested = record.message ?? record.error_description ?? record.error ?? record.details;
+  if (nested && nested !== value) {
+    const nestedMessage = stringifyError(nested);
+    if (nestedMessage) return nestedMessage;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export function serviceClient() {
   return createClient(requireEnv("SUPABASE_URL"), requireEnv("SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -73,16 +93,12 @@ export async function callFunction<T>(
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const detail = data?.error ? String(data.error) : JSON.stringify(data);
+    const detail = stringifyError(data);
     throw new Error(`${name} falhou: ${detail}`);
   }
   return data as T;
 }
 
 export function errorJson(req: Request, error: unknown, status = 400) {
-  return json(
-    req,
-    { ok: false, error: error instanceof Error ? error.message : String(error) },
-    status,
-  );
+  return json(req, { ok: false, error: stringifyError(error) }, status);
 }

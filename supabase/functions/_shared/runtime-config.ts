@@ -121,8 +121,8 @@ export function hasCfg(config: RuntimeConfig, key: string) {
 export function publicRuntimeStatus(config: RuntimeConfig) {
   return {
     openaiApiKey: hasCfg(config, "OPENAI_API_KEY"),
-    openaiTextModel: cfg(config, "OPENAI_TEXT_MODEL", "gpt-5.5"),
-    openaiImageModel: cfg(config, "OPENAI_IMAGE_MODEL", "gpt-image-2"),
+    openaiTextModel: cfg(config, "OPENAI_TEXT_MODEL", "gpt-5.2"),
+    openaiImageModel: cfg(config, "OPENAI_IMAGE_MODEL", "gpt-image-1.5"),
     openaiImageQuality: cfg(config, "OPENAI_IMAGE_QUALITY", "high"),
     enableOpenaiVideo: cfg(config, "ENABLE_OPENAI_VIDEO", "false"),
     openaiVideoModel: cfg(config, "OPENAI_VIDEO_MODEL", "sora-2-pro"),

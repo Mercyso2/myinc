@@ -44,8 +44,8 @@ must(
 
 const envProd = fs.readFileSync(path.join(root, ".env.production.example"), "utf8");
 warn(
-  envProd.includes("OPENAI_IMAGE_MODEL=gpt-image-2"),
-  "Env produção não está apontando para gpt-image-2.",
+  envProd.includes("OPENAI_IMAGE_MODEL=gpt-image-1.5"),
+  "Env produção não está apontando para gpt-image-1.5.",
 );
 warn(
   envProd.includes("ENABLE_OPENAI_VIDEO=true"),

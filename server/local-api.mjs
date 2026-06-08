@@ -717,7 +717,7 @@ async function askOpenAIText(system, user, fallback) {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: process.env.OPENAI_TEXT_MODEL || "gpt-5.5",
+        model: process.env.OPENAI_TEXT_MODEL || "gpt-5.2",
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -910,8 +910,10 @@ async function callOpenAIImage(prompt, post, suffix = "") {
   const key = process.env.OPENAI_API_KEY || process.env.IMAGE_API_KEY;
   if (!key)
     throw new Error("OPENAI_API_KEY ausente. Gere imagens reais configurando a chave no .env.");
-  const requestedModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
-  const fallbackModels = (process.env.OPENAI_IMAGE_FALLBACK_MODELS || "gpt-image-1.5,gpt-image-1")
+  const requestedModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5";
+  const fallbackModels = (
+    process.env.OPENAI_IMAGE_FALLBACK_MODELS || "gpt-image-1,gpt-image-1-mini"
+  )
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
@@ -1856,8 +1858,8 @@ async function handleFunction(name, payload, db, req) {
       environment: {
         localMode: true,
         openaiApiKey: Boolean(process.env.OPENAI_API_KEY),
-        openaiTextModel: process.env.OPENAI_TEXT_MODEL || "gpt-5.5",
-        openaiImageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2",
+        openaiTextModel: process.env.OPENAI_TEXT_MODEL || "gpt-5.2",
+        openaiImageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5",
         metaPageAccessToken: Boolean(process.env.META_PAGE_ACCESS_TOKEN),
         metaPageId: process.env.META_PAGE_ID || null,
         metaInstagramBusinessId: process.env.META_INSTAGRAM_BUSINESS_ID || null,
@@ -2811,7 +2813,7 @@ async function handler(req, res) {
         dbPath: activeDbPath(),
         databaseDriver: DB_DRIVER === "sqlite" && DatabaseSync ? "sqlite" : "json",
         mediaEngine: {
-          imageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2",
+          imageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5",
           imageStrict: strictAiMode(),
           openAiVideo: truthyEnv("ENABLE_OPENAI_VIDEO", false),
           localAuthRequired: truthyEnv("LOCAL_AUTH_REQUIRED", true),

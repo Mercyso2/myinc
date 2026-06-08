@@ -4,6 +4,7 @@ import {
   errorJson,
   requireActiveUser,
   serviceClient,
+  stringifyError,
 } from "../_shared/function-utils.ts";
 import { json, options } from "../_shared/runtime-config.ts";
 
@@ -39,7 +40,7 @@ serve(async (req) => {
         results.push({
           postId,
           ok: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: stringifyError(error),
         });
       }
     }
