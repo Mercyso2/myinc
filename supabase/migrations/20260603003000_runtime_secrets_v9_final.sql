@@ -125,13 +125,16 @@ using (bucket_id = 'creative-media');
 -- Chaves base não secretas para o painel já reconhecer defaults.
 insert into public.runtime_secrets (key, value, is_secret, updated_at)
 values
-  ('OPENAI_TEXT_MODEL', 'gpt-4.1-mini', false, now()),
+  ('OPENAI_TEXT_MODEL', 'gpt-5.5', false, now()),
   ('OPENAI_IMAGE_MODEL', 'gpt-image-2', false, now()),
   ('OPENAI_IMAGE_QUALITY', 'high', false, now()),
   ('ENABLE_OPENAI_VIDEO', 'true', false, now()),
   ('OPENAI_VIDEO_MODEL', 'sora-2-pro', false, now()),
   ('OPENAI_VIDEO_SIZE', '1080x1920', false, now()),
   ('OPENAI_VIDEO_SECONDS', '8', false, now()),
+  ('MOCK_AI_PROVIDER', 'false', false, now()),
+  ('MOCK_META_PROVIDER', 'false', false, now()),
+  ('CORS_ALLOW_ORIGIN', 'https://seudominio.com.br', false, now()),
   ('MEDIA_BUCKET', 'creative-media', false, now()),
   ('PUBLIC_MEDIA_BASE_URL', 'https://wsikywlyvtkrtejddymy.supabase.co/storage/v1/object/public/creative-media', false, now()),
   ('DEFAULT_TIMEZONE', 'America/Sao_Paulo', false, now()),

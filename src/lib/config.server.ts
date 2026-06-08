@@ -26,8 +26,8 @@ export function getServerConfig() {
     },
     openai: {
       apiKey: process.env.OPENAI_API_KEY,
-      textModel: process.env.OPENAI_TEXT_MODEL ?? "gpt-4o",
-      imageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1",
+      textModel: process.env.OPENAI_TEXT_MODEL ?? "gpt-5.5",
+      imageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2",
       imageGenerationApiUrl: process.env.IMAGE_GENERATION_API_URL,
       imageApiKey: process.env.IMAGE_API_KEY,
       useAiImages: process.env.USE_AI_IMAGES === "1",

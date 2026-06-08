@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { boolCfg, cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": Deno.env.get("CORS_ALLOW_ORIGIN") ?? "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 function json(body: unknown, status = 200) {
@@ -155,7 +155,9 @@ serve(async (req) => {
       .from(cfg(runtime, "MEDIA_BUCKET", "creative-media"))
       .upload(path, bytes, { contentType: "video/mp4", upsert: false });
     if (uploadError) throw uploadError;
-    const { data: publicUrl } = supabase.storage.from(cfg(runtime, "MEDIA_BUCKET", "creative-media")).getPublicUrl(path);
+    const { data: publicUrl } = supabase.storage
+      .from(cfg(runtime, "MEDIA_BUCKET", "creative-media"))
+      .getPublicUrl(path);
     const videoUrl = publicUrl.publicUrl;
     await supabase.from("media_assets").insert({
       brand_id: post.brand_id,

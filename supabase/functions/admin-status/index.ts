@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { json, loadRuntimeConfig, options, publicRuntimeStatus } from "../_shared/runtime-config.ts";
+import {
+  json,
+  loadRuntimeConfig,
+  options,
+  publicRuntimeStatus,
+} from "../_shared/runtime-config.ts";
 
 const tables = [
   "app_users",
@@ -33,12 +38,16 @@ serve(async (req) => {
     const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!supabaseUrl || !serviceRole) {
-      return json(req, {
-        ok: false,
-        admin: false,
-        error: "SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY ausente nos Secrets da Edge Function.",
-        environment: { supabaseUrl: Boolean(supabaseUrl), serviceRole: Boolean(serviceRole) },
-      }, 500);
+      return json(
+        req,
+        {
+          ok: false,
+          admin: false,
+          error: "SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY ausente nos Secrets da Edge Function.",
+          environment: { supabaseUrl: Boolean(supabaseUrl), serviceRole: Boolean(serviceRole) },
+        },
+        500,
+      );
     }
 
     const admin = createClient(supabaseUrl, serviceRole, {
@@ -50,12 +59,16 @@ serve(async (req) => {
 
     const { data: userData, error: userError } = await admin.auth.getUser(token);
     if (userError || !userData.user) {
-      return json(req, {
-        ok: false,
-        admin: false,
-        error: "Token inválido ou sessão expirada.",
-        detail: userError?.message ?? null,
-      }, 401);
+      return json(
+        req,
+        {
+          ok: false,
+          admin: false,
+          error: "Token inválido ou sessão expirada.",
+          detail: userError?.message ?? null,
+        },
+        401,
+      );
     }
 
     const userId = userData.user.id;
@@ -69,13 +82,17 @@ serve(async (req) => {
 
     const allowed = profile && profile.status !== "disabled" && profile.status !== "inactive";
     if (!allowed) {
-      return json(req, {
-        ok: false,
-        admin: false,
-        error: "Usuário sem perfil ativo em app_users.",
-        user: { id: userId, email: userEmail },
-        profile: profile ?? null,
-      }, 403);
+      return json(
+        req,
+        {
+          ok: false,
+          admin: false,
+          error: "Usuário sem perfil ativo em app_users.",
+          user: { id: userId, email: userEmail },
+          profile: profile ?? null,
+        },
+        403,
+      );
     }
 
     const runtime = await loadRuntimeConfig(admin);
@@ -83,7 +100,10 @@ serve(async (req) => {
     const tableStatus: Record<string, boolean> = {};
     await Promise.all(
       tables.map(async (table) => {
-        const { error } = await admin.from(table).select("*", { count: "exact", head: true }).limit(1);
+        const { error } = await admin
+          .from(table)
+          .select("*", { count: "exact", head: true })
+          .limit(1);
         tableStatus[table] = !error;
       }),
     );
@@ -115,16 +135,30 @@ serve(async (req) => {
         adminStatus: true,
         adminSaveSettings: true,
         adminUsers: true,
+        aiGeneratePlan: true,
+        autonomousRun: true,
+        backupCreate: true,
+        backupList: true,
         generateImage: true,
+        generateImagesBatch: true,
         generatePostContent: true,
         generateVideo: true,
+        generateVideosBatch: true,
+        improvePost: true,
+        metaTestConnection: true,
         processProductionQueue: true,
         processPublishQueue: true,
         publishMeta: true,
-        metaTestConnection: true,
+        renderTemplate: true,
+        renderTemplatesBatch: true,
+        reviewPostQuality: true,
       },
     });
   } catch (error) {
-    return json(req, { ok: false, admin: false, error: error instanceof Error ? error.message : String(error) }, 500);
+    return json(
+      req,
+      { ok: false, admin: false, error: error instanceof Error ? error.message : String(error) },
+      500,
+    );
   }
 });

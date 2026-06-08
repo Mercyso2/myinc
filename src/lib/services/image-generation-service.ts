@@ -37,7 +37,7 @@ export class ImageGenerationService {
       body: JSON.stringify({
         prompt,
         size: request.dimension,
-        model: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1",
+        model: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2",
       }),
     });
 

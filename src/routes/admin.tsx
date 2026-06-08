@@ -21,7 +21,13 @@ import {
 } from "@/components/social-components";
 import { ReleaseStatusCard } from "@/components/release-status";
 import { useAuth } from "@/lib/auth";
-import { callEdgeFunction, createAdminUser, isSupabaseConfigured, selectRows, upsertRows } from "@/lib/supabase/client";
+import {
+  callEdgeFunction,
+  createAdminUser,
+  isSupabaseConfigured,
+  selectRows,
+  upsertRows,
+} from "@/lib/supabase/client";
 import { logRepository } from "@/lib/repositories/log-repository";
 import type { SystemLog } from "@/lib/social-types";
 import type { SystemLogRow } from "@/lib/supabase/types";
@@ -40,7 +46,6 @@ type AdminStatus = {
   storage?: Record<string, boolean>;
   edgeFunctions?: Record<string, boolean>;
 };
-
 
 type RuntimeSecretRow = {
   key: string;
@@ -75,7 +80,7 @@ function buildStatusFromRuntimeSecrets(rows: RuntimeSecretRow[]): AdminStatus {
     admin: true,
     environment: {
       openaiApiKey: has("OPENAI_API_KEY"),
-      openaiTextModel: get("OPENAI_TEXT_MODEL", "gpt-4.1-mini"),
+      openaiTextModel: get("OPENAI_TEXT_MODEL", "gpt-5.5"),
       openaiImageModel: get("OPENAI_IMAGE_MODEL", "gpt-image-2"),
       openaiImageQuality: get("OPENAI_IMAGE_QUALITY", "high"),
       enableOpenaiVideo: get("ENABLE_OPENAI_VIDEO", "false"),
@@ -349,7 +354,6 @@ function Admin() {
   );
 }
 
-
 type RuntimeSettingsForm = {
   OPENAI_API_KEY: string;
   OPENAI_TEXT_MODEL: string;
@@ -366,7 +370,7 @@ type RuntimeSettingsForm = {
 
 const defaultRuntimeSettings: RuntimeSettingsForm = {
   OPENAI_API_KEY: "",
-  OPENAI_TEXT_MODEL: "gpt-4.1-mini",
+  OPENAI_TEXT_MODEL: "gpt-5.5",
   OPENAI_IMAGE_MODEL: "gpt-image-2",
   OPENAI_IMAGE_QUALITY: "high",
   ENABLE_OPENAI_VIDEO: "true",
@@ -437,15 +441,22 @@ function RuntimeSettingsPanel({ onSaved }: { onSaved: () => Promise<void> }) {
   }
 
   return (
-    <form onSubmit={saveRuntimeSettings} className="mb-5 rounded-3xl border border-primary/20 bg-card p-5 shadow-soft">
+    <form
+      onSubmit={saveRuntimeSettings}
+      className="mb-5 rounded-3xl border border-primary/20 bg-card p-5 shadow-soft"
+    >
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
           <h3 className="text-lg font-bold">Configurar credenciais pelo painel</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Atalho de produção: os valores são salvos diretamente em runtime_secrets via Supabase REST e usados pelas Edge Functions. As chaves não são retornadas para a tela.
+            Atalho de produção: os valores são salvos diretamente em runtime_secrets via Supabase
+            REST e usados pelas Edge Functions. As chaves não são retornadas para a tela.
           </p>
         </div>
-        <Button disabled={saving} className="rounded-full bg-gradient-primary text-primary-foreground">
+        <Button
+          disabled={saving}
+          className="rounded-full bg-gradient-primary text-primary-foreground"
+        >
           {saving ? "Salvando..." : "Salvar credenciais"}
         </Button>
       </div>
@@ -469,7 +480,7 @@ function RuntimeSettingsPanel({ onSaved }: { onSaved: () => Promise<void> }) {
           <Input
             value={form.OPENAI_TEXT_MODEL}
             onChange={(event) => setField("OPENAI_TEXT_MODEL", event.target.value)}
-            placeholder="gpt-4.1-mini"
+            placeholder="gpt-5.5"
           />
         </label>
         <label className="space-y-2">
@@ -547,7 +558,8 @@ function RuntimeSettingsPanel({ onSaved }: { onSaved: () => Promise<void> }) {
         </label>
       </div>
       <p className="mt-4 text-xs text-muted-foreground">
-        SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY continuam nos Secrets da Supabase Function; as demais credenciais ficam em runtime_secrets.
+        SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY continuam nos Secrets da Supabase Function; as
+        demais credenciais ficam em runtime_secrets.
       </p>
     </form>
   );

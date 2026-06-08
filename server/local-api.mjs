@@ -37,6 +37,8 @@ function activeDbPath() {
 
 const PORT = Number(process.env.LOCAL_API_PORT || process.env.APP_PORT || 8787);
 const HOST = process.env.LOCAL_API_HOST || "127.0.0.1";
+const IS_PRODUCTION = process.env.APP_ENV === "production" || process.env.NODE_ENV === "production";
+const CORS_ORIGIN = process.env.CORS_ALLOW_ORIGIN || (IS_PRODUCTION ? "null" : "*");
 const PUBLIC_BASE = (
   process.env.PUBLIC_MEDIA_BASE_URL ||
   `http://${HOST}:${PORT}/storage/v1/object/public/creative-media`
@@ -459,7 +461,7 @@ function requestBody(req) {
 
 function send(res, status, payload, headers = {}) {
   res.writeHead(status, {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": CORS_ORIGIN,
     "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "authorization,apikey,content-type,prefer,x-upsert",
     "Content-Type": "application/json; charset=utf-8",
@@ -470,7 +472,7 @@ function send(res, status, payload, headers = {}) {
 
 function sendText(res, status, text, headers = {}) {
   res.writeHead(status, {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": CORS_ORIGIN,
     "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "authorization,apikey,content-type,prefer,x-upsert",
     ...headers,
@@ -494,7 +496,9 @@ function normalizeLogin(login) {
 }
 
 function comparePassword(password) {
-  return String(password || "") === String(process.env.LOCAL_ADMIN_PASSWORD || "Rodrigo@2026!");
+  const configured = process.env.LOCAL_ADMIN_PASSWORD;
+  if (!configured) return false;
+  return String(password || "") === String(configured);
 }
 
 function normalizeFunctionName(name = "") {
@@ -713,7 +717,7 @@ async function askOpenAIText(system, user, fallback) {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini",
+        model: process.env.OPENAI_TEXT_MODEL || "gpt-5.5",
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -1852,8 +1856,8 @@ async function handleFunction(name, payload, db, req) {
       environment: {
         localMode: true,
         openaiApiKey: Boolean(process.env.OPENAI_API_KEY),
-        openaiTextModel: process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini",
-        openaiImageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
+        openaiTextModel: process.env.OPENAI_TEXT_MODEL || "gpt-5.5",
+        openaiImageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2",
         metaPageAccessToken: Boolean(process.env.META_PAGE_ACCESS_TOKEN),
         metaPageId: process.env.META_PAGE_ID || null,
         metaInstagramBusinessId: process.env.META_INSTAGRAM_BUSINESS_ID || null,
@@ -2701,7 +2705,7 @@ async function handleStorage(req, res, url) {
   if (req.method === "GET") {
     if (!fs.existsSync(filePath)) return send(res, 404, { error: "Arquivo não encontrado" });
     const type = getMimeByPath(filePath);
-    res.writeHead(200, { "Access-Control-Allow-Origin": "*", "Content-Type": type });
+    res.writeHead(200, { "Access-Control-Allow-Origin": CORS_ORIGIN, "Content-Type": type });
     fs.createReadStream(filePath).pipe(res);
     return;
   }
@@ -2749,7 +2753,7 @@ function tryServeFrontend(req, res, url) {
   }
   if (!fs.existsSync(filePath)) return false;
   res.writeHead(200, {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": CORS_ORIGIN,
     "Content-Type": contentTypeForFile(filePath),
     "Cache-Control": filePath.endsWith("index.html")
       ? "no-cache"

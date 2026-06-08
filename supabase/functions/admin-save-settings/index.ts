@@ -13,7 +13,12 @@ function bearer(req: Request) {
 }
 
 function isSecretKey(key: string) {
-  return key.includes("KEY") || key.includes("TOKEN") || key.includes("SECRET") || key.includes("PASSWORD");
+  return (
+    key.includes("KEY") ||
+    key.includes("TOKEN") ||
+    key.includes("SECRET") ||
+    key.includes("PASSWORD")
+  );
 }
 
 const allowed = new Set<string>(RUNTIME_KEYS);
@@ -30,11 +35,16 @@ serve(async (req) => {
     });
 
     const token = bearer(req);
-    if (!token) return json(req, { ok: false, error: "Faça login para salvar configurações." }, 401);
+    if (!token)
+      return json(req, { ok: false, error: "Faça login para salvar configurações." }, 401);
 
     const { data: userData, error: userError } = await admin.auth.getUser(token);
     if (userError || !userData.user) {
-      return json(req, { ok: false, error: "Sessão inválida ou expirada.", detail: userError?.message ?? null }, 401);
+      return json(
+        req,
+        { ok: false, error: "Sessão inválida ou expirada.", detail: userError?.message ?? null },
+        401,
+      );
     }
 
     const user = userData.user;
@@ -47,7 +57,15 @@ serve(async (req) => {
       .maybeSingle();
 
     if (profileByIdError) {
-      return json(req, { ok: false, error: "Erro ao consultar perfil por auth_user_id.", detail: profileByIdError.message }, 500);
+      return json(
+        req,
+        {
+          ok: false,
+          error: "Erro ao consultar perfil por auth_user_id.",
+          detail: profileByIdError.message,
+        },
+        500,
+      );
     }
 
     let profile = profileById;
@@ -60,7 +78,15 @@ serve(async (req) => {
         .maybeSingle();
 
       if (profileByEmailError) {
-        return json(req, { ok: false, error: "Erro ao consultar perfil por email.", detail: profileByEmailError.message }, 500);
+        return json(
+          req,
+          {
+            ok: false,
+            error: "Erro ao consultar perfil por email.",
+            detail: profileByEmailError.message,
+          },
+          500,
+        );
       }
 
       profile = profileByEmail;
@@ -68,12 +94,16 @@ serve(async (req) => {
 
     // Regra pragmática atual: qualquer usuário logado e ativo pode salvar configurações.
     if (!profile || profile.status === "disabled" || profile.status === "inactive") {
-      return json(req, {
-        ok: false,
-        error: "Usuário sem permissão para salvar configurações.",
-        user: { id: user.id, email: userEmail },
-        profile,
-      }, 403);
+      return json(
+        req,
+        {
+          ok: false,
+          error: "Usuário sem permissão para salvar configurações.",
+          user: { id: user.id, email: userEmail },
+          profile,
+        },
+        403,
+      );
     }
 
     const body = await req.json().catch(() => ({}));
@@ -101,7 +131,12 @@ serve(async (req) => {
 
     if (rows.length) {
       const { error } = await admin.from("runtime_secrets").upsert(rows, { onConflict: "key" });
-      if (error) return json(req, { ok: false, error: "Falha ao salvar em runtime_secrets.", detail: error.message }, 500);
+      if (error)
+        return json(
+          req,
+          { ok: false, error: "Falha ao salvar em runtime_secrets.", detail: error.message },
+          500,
+        );
     }
 
     const toDelete = deleteKeys
@@ -110,7 +145,12 @@ serve(async (req) => {
 
     if (toDelete.length) {
       const { error } = await admin.from("runtime_secrets").delete().in("key", toDelete);
-      if (error) return json(req, { ok: false, error: "Falha ao apagar chaves em runtime_secrets.", detail: error.message }, 500);
+      if (error)
+        return json(
+          req,
+          { ok: false, error: "Falha ao apagar chaves em runtime_secrets.", detail: error.message },
+          500,
+        );
     }
 
     try {
@@ -134,6 +174,10 @@ serve(async (req) => {
       message: "Configurações salvas. Rode Testar conexões reais em seguida.",
     });
   } catch (error) {
-    return json(req, { ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
+    return json(
+      req,
+      { ok: false, error: error instanceof Error ? error.message : String(error) },
+      500,
+    );
   }
 });

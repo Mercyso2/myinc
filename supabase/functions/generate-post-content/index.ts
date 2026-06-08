@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": Deno.env.get("CORS_ALLOW_ORIGIN") ?? "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 function json(body: unknown, status = 200) {
@@ -26,7 +26,7 @@ serve(async (req) => {
   );
   const runtime = await loadRuntimeConfig(supabase);
   const openAiKey = requiredCfg(runtime, "OPENAI_API_KEY", "Geração de conteúdo");
-  const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-4.1-mini");
+  const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-5.5");
   async function log(row: Record<string, unknown>) {
     await supabase.from("system_logs").insert({ type: row.type ?? "ai", ...row });
   }

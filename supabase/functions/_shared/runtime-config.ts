@@ -11,6 +11,9 @@ export const RUNTIME_KEYS = [
   "OPENAI_VIDEO_SECONDS",
   "OPENAI_VIDEO_POLL_TIMEOUT_SECONDS",
   "OPENAI_VIDEO_POLL_INTERVAL_SECONDS",
+  "MOCK_AI_PROVIDER",
+  "MOCK_META_PROVIDER",
+  "CORS_ALLOW_ORIGIN",
   "META_GRAPH_VERSION",
   "META_PAGE_ACCESS_TOKEN",
   "META_PAGE_ID",
@@ -41,13 +44,13 @@ type SupabaseLike = {
 
 export function getCorsHeaders(req: Request) {
   return {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": cfg({} as RuntimeConfig, "CORS_ALLOW_ORIGIN", "*"),
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
       req.headers.get("Access-Control-Request-Headers") ||
       "authorization, x-client-info, apikey, content-type, prefer, x-supabase-api-version",
     "Access-Control-Max-Age": "86400",
-    "Vary": "Origin, Access-Control-Request-Headers",
+    Vary: "Origin, Access-Control-Request-Headers",
   };
 }
 
@@ -76,7 +79,10 @@ export async function loadRuntimeConfig(supabase: SupabaseLike): Promise<Runtime
   }
 
   try {
-    const { data, error } = await supabase.from("runtime_secrets").select("key,value").in("key", RUNTIME_KEYS);
+    const { data, error } = await supabase
+      .from("runtime_secrets")
+      .select("key,value")
+      .in("key", RUNTIME_KEYS);
 
     if (!error && Array.isArray(data)) {
       for (const row of data) {
@@ -115,11 +121,13 @@ export function hasCfg(config: RuntimeConfig, key: string) {
 export function publicRuntimeStatus(config: RuntimeConfig) {
   return {
     openaiApiKey: hasCfg(config, "OPENAI_API_KEY"),
-    openaiTextModel: cfg(config, "OPENAI_TEXT_MODEL", "gpt-4.1-mini"),
+    openaiTextModel: cfg(config, "OPENAI_TEXT_MODEL", "gpt-5.5"),
     openaiImageModel: cfg(config, "OPENAI_IMAGE_MODEL", "gpt-image-2"),
     openaiImageQuality: cfg(config, "OPENAI_IMAGE_QUALITY", "high"),
     enableOpenaiVideo: cfg(config, "ENABLE_OPENAI_VIDEO", "false"),
     openaiVideoModel: cfg(config, "OPENAI_VIDEO_MODEL", "sora-2-pro"),
+    mockAiProvider: cfg(config, "MOCK_AI_PROVIDER", "false"),
+    mockMetaProvider: cfg(config, "MOCK_META_PROVIDER", "false"),
     metaPageAccessToken: hasCfg(config, "META_PAGE_ACCESS_TOKEN"),
     metaPageId: hasCfg(config, "META_PAGE_ID") || hasCfg(config, "FACEBOOK_PAGE_ID"),
     metaInstagramBusinessId: hasCfg(config, "META_INSTAGRAM_BUSINESS_ID"),

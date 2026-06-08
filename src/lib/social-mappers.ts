@@ -67,7 +67,7 @@ export function postRowToSocialPost(
 
   return {
     id: row.id,
-    brandId: row.brand_id,
+    brandId: row.brand_id ?? "",
     monthlyPlanId: row.monthly_plan_id ?? "",
     title: row.title,
     channel: (row.channel || "Instagram") as SocialChannel,
