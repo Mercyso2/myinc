@@ -1,70 +1,70 @@
-import { AIContentService } from "@/lib/services/ai-content-service";
+import { callEdgeFunction } from "@/lib/supabase/client";
 import type { MediaAsset, SocialPost } from "@/lib/social-types";
 
-export interface ImageGenerationRequest {
-  post: Partial<SocialPost>;
-  format: string;
-  dimension: string;
-  references?: MediaAsset[];
-  negativePrompt?: string;
+export type ImageGenerationStage =
+  | "preparando_prompt"
+  | "gerando_imagem"
+  | "salvando_midia"
+  | "atualizando_post"
+  | "concluido";
+
+export interface ImageGenerationResult {
+  ok: true;
+  mediaUrl: string;
+  carouselMediaUrls: string[];
+  model: string;
+  prompt: string;
+  mediaAsset: Partial<MediaAsset> & { id: string };
+  post: SocialPost;
+  message?: string;
 }
 
+export interface ImageGenerationOptions {
+  token: string;
+  postId: string;
+  feedback?: string;
+  onStage?: (stage: ImageGenerationStage) => void;
+}
+
+/** Production-only wrapper. Image generation and secrets always stay in generate-image. */
 export class ImageGenerationService {
-  static buildImagePrompt(request: ImageGenerationRequest) {
-    const basePrompt = AIContentService.buildImagePrompt(request.post, request.dimension);
-    const references = request.references
-      ?.filter((item) => item.aiAllowed)
-      .map((item) => `${item.name}: ${item.notes}`)
-      .join(" | ");
-    return `${basePrompt}\n\nFormato: ${request.format}. Dimensão: ${request.dimension}. Referências permitidas: ${references || "nenhuma referência anexada"}. Negative prompt adicional: ${request.negativePrompt || "usar negative prompt padrão MYINC"}.`;
-  }
+  static async generateImage(options: ImageGenerationOptions): Promise<ImageGenerationResult> {
+    const { token, postId, feedback, onStage } = options;
+    if (!token) throw new Error("Sua sessão expirou. Entre novamente antes de gerar a imagem.");
+    if (!postId) throw new Error("Não foi possível identificar o post para gerar a imagem.");
 
-  static async generateImage(request: ImageGenerationRequest) {
-    const prompt = this.buildImagePrompt(request);
-    const useAiImages = import.meta.env.SSR ? process.env.USE_AI_IMAGES === "1" : false;
-    const endpoint = import.meta.env.SSR ? process.env.IMAGE_GENERATION_API_URL : undefined;
-    const apiKey = import.meta.env.SSR ? process.env.IMAGE_API_KEY : undefined;
+    onStage?.("preparando_prompt");
+    try {
+      onStage?.("gerando_imagem");
+      const result = await callEdgeFunction<ImageGenerationResult>("generate-image", token, {
+        postId,
+        feedback: feedback?.trim() || undefined,
+      });
+      onStage?.("salvando_midia");
 
-    if (!useAiImages || !endpoint || !apiKey) {
-      throw new Error(
-        "Geração local desativada. Use a Edge Function generate-image com OPENAI_API_KEY/OPENAI_IMAGE_MODEL.",
-      );
+      if (!result?.ok || !result.mediaUrl || !result.mediaAsset?.id || !result.post) {
+        throw new Error(
+          "A geração terminou com resposta incompleta. Nenhuma mídia foi considerada pronta.",
+        );
+      }
+      if (!result.mediaUrl.startsWith("https://")) {
+        throw new Error("A imagem foi criada, mas não possui uma URL pública HTTPS válida.");
+      }
+
+      onStage?.("atualizando_post");
+      onStage?.("concluido");
+      return { ...result, carouselMediaUrls: result.carouselMediaUrls ?? [] };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Não foi possível gerar a imagem deste post. ${detail}`);
     }
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        prompt,
-        size: request.dimension,
-        model: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1.5",
-      }),
-    });
-
-    if (!response.ok) throw new Error(`Falha ao gerar imagem: ${response.status}`);
-    const data = await response.json();
-    return {
-      mode: "real" as const,
-      url: data.url ?? data.output?.[0]?.url,
-      prompt,
-      message: "Imagem gerada com provedor configurado.",
-    };
   }
 
-  static saveGeneratedImage(asset: Partial<MediaAsset>) {
-    return {
-      ...asset,
-      id: asset.id ?? `media-${Date.now()}`,
-      uploadedAt: new Date().toISOString(),
-      origin: "Geração IA",
-    };
-  }
-
-  static async regenerateImage(request: ImageGenerationRequest, humanFeedback: string) {
-    return this.generateImage({
-      ...request,
-      negativePrompt: `${request.negativePrompt ?? ""}. Comentário humano: ${humanFeedback}`,
-    });
+  static regenerateImage(options: ImageGenerationOptions & { feedback: string }) {
+    if (!options.feedback.trim()) {
+      throw new Error("Informe um feedback humano para regenerar a imagem.");
+    }
+    return this.generateImage(options);
   }
 
   static validateImageUrl(url?: string) {

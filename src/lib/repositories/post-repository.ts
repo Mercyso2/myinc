@@ -61,10 +61,16 @@ export function generatePostContent(token: string, postId: string, instruction?:
   });
 }
 
-export function generatePostImage(token: string, postId: string) {
-  return callEdgeFunction<{ ok: true; post: PostRow; mediaUrl: string }>("generate-image", token, {
-    postId,
-  });
+export function generatePostImage(token: string, postId: string, feedback?: string) {
+  return callEdgeFunction<{
+    ok: true;
+    post: PostRow;
+    mediaUrl: string;
+    carouselMediaUrls: string[];
+    model: string;
+    prompt: string;
+    mediaAsset: { id: string };
+  }>("generate-image", token, { postId, feedback });
 }
 
 export function publishPostNow(token: string, postId: string) {

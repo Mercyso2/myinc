@@ -44,7 +44,11 @@ type SupabaseLike = {
 
 export function getCorsHeaders(req: Request) {
   return {
-    "Access-Control-Allow-Origin": cfg({} as RuntimeConfig, "CORS_ALLOW_ORIGIN", "*"),
+    "Access-Control-Allow-Origin": cfg(
+      {} as RuntimeConfig,
+      "CORS_ALLOW_ORIGIN",
+      "http://localhost:5173",
+    ),
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
       req.headers.get("Access-Control-Request-Headers") ||

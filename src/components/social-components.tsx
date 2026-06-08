@@ -463,7 +463,7 @@ export function CreativeReviewModal({
   onSchedule?: (scheduledAt: string) => Promise<void> | void;
   onPublish?: () => Promise<void> | void;
   onRegenerate?: (feedback: string) => Promise<void> | void;
-  onGenerateImage?: () => Promise<void> | void;
+  onGenerateImage?: (feedback?: string) => Promise<void> | void;
   onImprove?: (
     mode: "copy" | "premium" | "commercial" | "institutional" | "visual" | "shorter" | "carousel",
   ) => Promise<void> | void;
@@ -480,6 +480,9 @@ export function CreativeReviewModal({
   const [creativeBrief, setCreativeBrief] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [imageGenerating, setImageGenerating] = useState(false);
+  const [imageStage, setImageStage] = useState("");
+  const [imageError, setImageError] = useState("");
 
   useEffect(() => {
     if (!post) return;
@@ -501,6 +504,34 @@ export function CreativeReviewModal({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose, open]);
+
+  async function handleGenerateImage(humanFeedback?: string) {
+    if (!onGenerateImage || imageGenerating) return;
+    setImageGenerating(true);
+    setImageError("");
+    const stages = [
+      "Preparando prompt",
+      "Gerando imagem real com OpenAI",
+      "Salvando mídia",
+      "Atualizando post",
+    ];
+    let index = 0;
+    setImageStage(stages[index]);
+    const timer = window.setInterval(() => {
+      index = Math.min(index + 1, stages.length - 1);
+      setImageStage(stages[index]);
+    }, 3500);
+    try {
+      await onGenerateImage(humanFeedback);
+      setImageStage("Concluído");
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "Falha ao gerar imagem.");
+      setImageStage("");
+    } finally {
+      window.clearInterval(timer);
+      setImageGenerating(false);
+    }
+  }
 
   if (!open || !post) return null;
   const finalScheduledAt = scheduledAt ? new Date(scheduledAt).toISOString() : post.scheduledAt;
@@ -754,10 +785,10 @@ export function CreativeReviewModal({
             </Button>
             <Button
               variant="outline"
-              disabled={!onGenerateImage}
-              onClick={() => void onGenerateImage?.()}
+              disabled={!onGenerateImage || imageGenerating}
+              onClick={() => void handleGenerateImage()}
             >
-              <ImagePlus className="h-4 w-4" /> Gerar mídia
+              <ImagePlus className="h-4 w-4" /> {imageGenerating ? imageStage : "Gerar imagem"}
             </Button>
             <Button variant="outline" disabled={!onPublish} onClick={() => void onPublish?.()}>
               <Play className="h-4 w-4" /> Publicar agora
@@ -765,6 +796,28 @@ export function CreativeReviewModal({
             <Button variant="ghost" disabled={!onArchive} onClick={() => void onArchive?.()}>
               <Archive className="h-4 w-4" /> Arquivar
             </Button>
+          </div>
+          <div className="rounded-3xl border border-primary/20 bg-primary/5 p-4 text-sm">
+            <h3 className="font-semibold">Geração de imagem em produção</h3>
+            {imageStage ? <p className="mt-2 text-primary">Etapa: {imageStage}</p> : null}
+            {imageError ? <p className="mt-2 text-destructive">{imageError}</p> : null}
+            <p className="mt-2 break-all text-muted-foreground">
+              URL da mídia: {post.mediaUrl || "ainda não gerada"}
+            </p>
+            <p className="mt-2 text-muted-foreground">
+              Prompt usado: {post.imagePrompt || "ainda não gerado"}
+            </p>
+            <div className="mt-3 space-y-2">
+              <p className="font-semibold">Histórico de versões ({post.versions.length})</p>
+              {post.versions.slice(0, 5).map((version) => (
+                <div
+                  key={version.id}
+                  className="rounded-xl bg-card p-2 text-xs text-muted-foreground"
+                >
+                  {version.version} · {version.createdAt} · {version.mediaUrl || "sem mídia"}
+                </div>
+              ))}
+            </div>
           </div>
           <div className="rounded-3xl border border-border bg-background p-4">
             <h3 className="font-semibold">Correção com feedback</h3>
@@ -782,7 +835,14 @@ export function CreativeReviewModal({
                 disabled={!feedback.trim() || !onRegenerate}
                 onClick={() => void onRegenerate?.(feedback)}
               >
-                <Wand2 className="h-4 w-4" /> Regerar
+                <Wand2 className="h-4 w-4" /> Regerar conteúdo
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!feedback.trim() || !onGenerateImage || imageGenerating}
+                onClick={() => void handleGenerateImage(feedback)}
+              >
+                <ImagePlus className="h-4 w-4" /> Regenerar imagem
               </Button>
             </div>
           </div>

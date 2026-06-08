@@ -28,9 +28,6 @@ export function getServerConfig() {
       apiKey: process.env.OPENAI_API_KEY,
       textModel: process.env.OPENAI_TEXT_MODEL ?? "gpt-5.2",
       imageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1.5",
-      imageGenerationApiUrl: process.env.IMAGE_GENERATION_API_URL,
-      imageApiKey: process.env.IMAGE_API_KEY,
-      useAiImages: process.env.USE_AI_IMAGES === "1",
       qualityAutoApproveScore: Number(process.env.QUALITY_AUTO_APPROVE_SCORE ?? 92),
     },
     meta: {
