@@ -71,6 +71,25 @@ async function parseJson(response: Response) {
   }
 }
 
+async function fetchSupabase(context: string, input: string, init?: RequestInit) {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    const host = (() => {
+      try {
+        return new URL(input).host;
+      } catch {
+        return input;
+      }
+    })();
+    throw new SupabaseRestError(
+      `${context}: falha de rede/CORS ao acessar ${host}. Recarregue a pagina e confira VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY e CORS_ALLOW_ORIGIN nas Edge Functions.`,
+      undefined,
+      { cause: error instanceof Error ? error.message : String(error), url: input },
+    );
+  }
+}
+
 export function normalizeLogin(login: string) {
   return login.includes("@") ? login : `${login}@myinc.local`;
 }
@@ -80,7 +99,7 @@ export async function signInWithPassword(
   password: string,
 ): Promise<SupabaseSession> {
   const { url, anonKey } = requireSupabaseEnv();
-  const response = await fetch(`${url}/auth/v1/token?grant_type=password`, {
+  const response = await fetchSupabase("Login", `${url}/auth/v1/token?grant_type=password`, {
     method: "POST",
     headers: {
       apikey: anonKey,
@@ -101,7 +120,7 @@ export async function signInWithPassword(
 
 export async function signOut(session: SupabaseSession) {
   const { url } = requireSupabaseEnv();
-  await fetch(`${url}/auth/v1/logout`, {
+  await fetchSupabase("Logout", `${url}/auth/v1/logout`, {
     method: "POST",
     headers: getHeaders(session.access_token),
   });
@@ -109,7 +128,7 @@ export async function signOut(session: SupabaseSession) {
 
 export async function selectRows<T>(table: string, token: string, query = "select=*") {
   const { url } = requireSupabaseEnv();
-  const response = await fetch(`${url}/rest/v1/${table}?${query}`, {
+  const response = await fetchSupabase(`Ler ${table}`, `${url}/rest/v1/${table}?${query}`, {
     headers: getHeaders(token),
   });
   const data = await parseJson(response);
@@ -125,7 +144,7 @@ export async function upsertRows<T>(
 ) {
   const { url } = requireSupabaseEnv();
   const query = onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : "";
-  const response = await fetch(`${url}/rest/v1/${table}${query}`, {
+  const response = await fetchSupabase(`Salvar ${table}`, `${url}/rest/v1/${table}${query}`, {
     method: "POST",
     headers: { ...getHeaders(token), Prefer: "resolution=merge-duplicates,return=representation" },
     body: JSON.stringify(rows),
@@ -142,11 +161,15 @@ export async function insertRow<T>(table: string, token: string, row: Partial<T>
 
 export async function patchRow<T>(table: string, token: string, id: string, patch: Partial<T>) {
   const { url } = requireSupabaseEnv();
-  const response = await fetch(`${url}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: getHeaders(token),
-    body: JSON.stringify(patch),
-  });
+  const response = await fetchSupabase(
+    `Atualizar ${table}`,
+    `${url}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      headers: getHeaders(token),
+      body: JSON.stringify(patch),
+    },
+  );
   const data = await parseJson(response);
   if (!response.ok)
     throw new SupabaseRestError(`Falha ao atualizar ${table}.`, response.status, data);
@@ -155,7 +178,7 @@ export async function patchRow<T>(table: string, token: string, id: string, patc
 
 export async function deleteRows(table: string, token: string, query: string) {
   const { url } = requireSupabaseEnv();
-  const response = await fetch(`${url}/rest/v1/${table}?${query}`, {
+  const response = await fetchSupabase(`Excluir ${table}`, `${url}/rest/v1/${table}?${query}`, {
     method: "DELETE",
     headers: getHeaders(token, "return=minimal"),
   });
@@ -167,7 +190,7 @@ export async function deleteRows(table: string, token: string, query: string) {
 
 export async function callRpc<TResponse>(fn: string, token: string, payload?: object) {
   const { url } = requireSupabaseEnv();
-  const response = await fetch(`${url}/rest/v1/rpc/${fn}`, {
+  const response = await fetchSupabase(`RPC ${fn}`, `${url}/rest/v1/rpc/${fn}`, {
     method: "POST",
     headers: getHeaders(token),
     body: JSON.stringify(payload ?? {}),
@@ -183,11 +206,15 @@ export async function callEdgeFunction<TResponse>(
   payload?: object,
 ) {
   const { url } = requireSupabaseEnv();
-  const response = await fetch(`${url}/functions/v1/${functionName}`, {
-    method: "POST",
-    headers: getFunctionHeaders(token),
-    body: JSON.stringify(payload ?? {}),
-  });
+  const response = await fetchSupabase(
+    `Funcao ${functionName}`,
+    `${url}/functions/v1/${functionName}`,
+    {
+      method: "POST",
+      headers: getFunctionHeaders(token),
+      body: JSON.stringify(payload ?? {}),
+    },
+  );
   const data = await parseJson(response);
   if (!response.ok) {
     const detail = typeof data === "object" && data && "error" in data ? String(data.error) : "";
@@ -206,16 +233,20 @@ export function createAdminUser(token: string, payload: AdminCreateUserPayload) 
 
 export async function uploadStorageObject(bucket: string, path: string, token: string, file: File) {
   const { url, anonKey } = requireSupabaseEnv();
-  const response = await fetch(`${url}/storage/v1/object/${bucket}/${path}`, {
-    method: "POST",
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${token}`,
-      "Content-Type": file.type || "application/octet-stream",
-      "x-upsert": "false",
+  const response = await fetchSupabase(
+    `Upload ${bucket}`,
+    `${url}/storage/v1/object/${bucket}/${path}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "false",
+      },
+      body: file,
     },
-    body: file,
-  });
+  );
   const data = await parseJson(response);
   if (!response.ok)
     throw new SupabaseRestError(`Falha ao enviar arquivo para ${bucket}.`, response.status, data);
