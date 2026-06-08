@@ -70,24 +70,31 @@ function Calendario() {
         ),
       );
       setPosts(mapped);
-      if (selected) setSelected(mapped.find((post) => post.id === selected.id) ?? null);
+      setSelected((current) =>
+        current ? (mapped.find((post) => post.id === current.id) ?? null) : null,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar calendário real.");
     } finally {
       setLoading(false);
     }
-  }, [month, profile?.brand_id, selected, session]);
+  }, [month, profile?.brand_id, session]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  async function run(label: string, action: () => Promise<unknown>) {
+  async function run(
+    label: string,
+    action: () => Promise<unknown>,
+    options: { closeModal?: boolean } = {},
+  ) {
     setLoading(true);
     setError("");
     try {
       await action();
       toast.success(label);
+      if (options.closeModal) setSelected(null);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ação do calendário falhou.");
@@ -246,29 +253,38 @@ function Calendario() {
         open={!!selected}
         onClose={() => setSelected(null)}
         onSave={(patch) =>
-          run("Edição salva no calendário.", () =>
-            updatePostContent(session!.access_token, selected!.id, {
-              title: patch.title,
-              caption: patch.caption,
-              hashtags: patch.hashtags,
-              cta: patch.cta,
-              image_prompt: patch.imagePrompt,
-              creative_brief: patch.creativeBrief,
-              scheduled_at: patch.scheduledAt,
-            } as Partial<PostRow>),
+          run(
+            "Edição salva no calendário.",
+            () =>
+              updatePostContent(session!.access_token, selected!.id, {
+                title: patch.title,
+                caption: patch.caption,
+                hashtags: patch.hashtags,
+                cta: patch.cta,
+                image_prompt: patch.imagePrompt,
+                creative_brief: patch.creativeBrief,
+                scheduled_at: patch.scheduledAt,
+              } as Partial<PostRow>),
+            { closeModal: true },
           )
         }
         onApprove={() =>
-          run("Post aprovado.", () => approvePost(session!.access_token, selected!.id))
+          run("Post aprovado.", () => approvePost(session!.access_token, selected!.id), {
+            closeModal: true,
+          })
         }
         onSchedule={(scheduledAt) =>
-          run("Post agendado.", () =>
-            schedulePost(session!.access_token, selected as unknown as PostRow, scheduledAt),
+          run(
+            "Post agendado.",
+            () => schedulePost(session!.access_token, selected as unknown as PostRow, scheduledAt),
+            { closeModal: true },
           )
         }
         onPublish={() =>
-          run("Publicação Meta solicitada.", () =>
-            publishPostNow(session!.access_token, selected!.id),
+          run(
+            "Publicação Meta solicitada.",
+            () => publishPostNow(session!.access_token, selected!.id),
+            { closeModal: true },
           )
         }
         onRegenerate={(feedback) =>
@@ -280,7 +296,9 @@ function Calendario() {
           run("Imagem gerada.", () => generatePostImage(session!.access_token, selected!.id))
         }
         onArchive={() =>
-          run("Post arquivado.", () => archivePost(session!.access_token, selected!.id))
+          run("Post arquivado.", () => archivePost(session!.access_token, selected!.id), {
+            closeModal: true,
+          })
         }
         onAddComment={(comment) =>
           run("Comentário salvo.", () =>
