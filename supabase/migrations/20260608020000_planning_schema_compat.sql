@@ -1,9 +1,14 @@
 alter table if exists public.monthly_plans
+  add column if not exists name text null,
   add column if not exists title text null,
   add column if not exists strategy text null,
   add column if not exists prompt_used text null,
   add column if not exists ai_response_json jsonb null,
   add column if not exists deleted_at timestamptz null;
+
+update public.monthly_plans
+set name = coalesce(name, title, 'Planejamento editorial mensal MYINC')
+where name is null;
 
 do $$
 begin

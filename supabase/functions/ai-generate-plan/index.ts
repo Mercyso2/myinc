@@ -136,6 +136,7 @@ serve(async (req) => {
         brand_id: brandId,
         month: payload.month ?? null,
         year: payload.year ?? null,
+        name: payload.campaign ?? "Planejamento editorial mensal MYINC",
         title: payload.campaign ?? "Planejamento editorial mensal MYINC",
         objective: payload.monthlyObjective ?? null,
         strategy: String(planPayload.strategy ?? ""),
