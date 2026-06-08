@@ -21,13 +21,7 @@ import {
 } from "@/components/social-components";
 import { ReleaseStatusCard } from "@/components/release-status";
 import { useAuth } from "@/lib/auth";
-import {
-  callEdgeFunction,
-  createAdminUser,
-  isSupabaseConfigured,
-  selectRows,
-  upsertRows,
-} from "@/lib/supabase/client";
+import { callEdgeFunction, createAdminUser, isSupabaseConfigured } from "@/lib/supabase/client";
 import { logRepository } from "@/lib/repositories/log-repository";
 import type { SystemLog } from "@/lib/social-types";
 import type { SystemLogRow } from "@/lib/supabase/types";
@@ -46,56 +40,6 @@ type AdminStatus = {
   storage?: Record<string, boolean>;
   edgeFunctions?: Record<string, boolean>;
 };
-
-type RuntimeSecretRow = {
-  key: string;
-  value?: string | null;
-  is_secret?: boolean;
-  updated_by?: string | null;
-  updated_at?: string | null;
-};
-
-const statusKeys = [
-  "OPENAI_API_KEY",
-  "OPENAI_TEXT_MODEL",
-  "OPENAI_IMAGE_MODEL",
-  "OPENAI_IMAGE_QUALITY",
-  "ENABLE_OPENAI_VIDEO",
-  "OPENAI_VIDEO_MODEL",
-  "META_PAGE_ACCESS_TOKEN",
-  "META_PAGE_ID",
-  "FACEBOOK_PAGE_ID",
-  "META_INSTAGRAM_BUSINESS_ID",
-  "PUBLIC_MEDIA_BASE_URL",
-  "MEDIA_BUCKET",
-];
-
-function buildStatusFromRuntimeSecrets(rows: RuntimeSecretRow[]): AdminStatus {
-  const map = new Map(rows.map((row) => [row.key, String(row.value ?? "").trim()]));
-  const has = (key: string) => Boolean(map.get(key));
-  const get = (key: string, fallback = "") => map.get(key) || fallback;
-
-  return {
-    ok: true,
-    admin: true,
-    environment: {
-      openaiApiKey: has("OPENAI_API_KEY"),
-      openaiTextModel: get("OPENAI_TEXT_MODEL", "gpt-5.2"),
-      openaiImageModel: get("OPENAI_IMAGE_MODEL", "gpt-image-1.5"),
-      openaiImageQuality: get("OPENAI_IMAGE_QUALITY", "high"),
-      enableOpenaiVideo: get("ENABLE_OPENAI_VIDEO", "false"),
-      openaiVideoModel: get("OPENAI_VIDEO_MODEL", "sora-2-pro"),
-      metaPageAccessToken: has("META_PAGE_ACCESS_TOKEN"),
-      metaPageId: has("META_PAGE_ID") || has("FACEBOOK_PAGE_ID"),
-      metaInstagramBusinessId: has("META_INSTAGRAM_BUSINESS_ID"),
-      publicMediaBaseUrl: has("PUBLIC_MEDIA_BASE_URL"),
-      mediaBucket: get("MEDIA_BUCKET", "creative-media"),
-    },
-    database: { connected: true, tables: { runtime_secrets: true } },
-    storage: {},
-    edgeFunctions: { adminStatus: false, adminSaveSettings: false },
-  };
-}
 
 function mapLog(row: SystemLogRow): SystemLog {
   return {
@@ -153,25 +97,7 @@ function Admin() {
       await loadLogs();
       toast.success("Status real atualizado.");
     } catch (err) {
-      try {
-        const rows = await selectRows<RuntimeSecretRow>(
-          "runtime_secrets",
-          session.access_token,
-          `select=key,value&key=in.(${statusKeys.join(",")})`,
-        );
-        setStatus(buildStatusFromRuntimeSecrets(rows));
-        setError(
-          "admin-status falhou, mas o painel leu runtime_secrets diretamente. As credenciais podem ser salvas pelo fallback direto.",
-        );
-      } catch (fallbackErr) {
-        setError(
-          fallbackErr instanceof Error
-            ? fallbackErr.message
-            : err instanceof Error
-              ? err.message
-              : "Falha ao testar conexões reais.",
-        );
-      }
+      setError(err instanceof Error ? err.message : "Falha ao testar conexões reais.");
     } finally {
       setLoading(false);
     }
@@ -401,31 +327,17 @@ function RuntimeSettingsPanel({ onSaved }: { onSaved: () => Promise<void> }) {
       const settings = Object.fromEntries(
         Object.entries(form).filter(([, value]) => String(value ?? "").trim().length > 0),
       );
-      const now = new Date().toISOString();
-      const rows = Object.entries(settings).map(([key, value]) => ({
-        key,
-        value: String(value ?? "").trim(),
-        is_secret:
-          key.includes("KEY") ||
-          key.includes("TOKEN") ||
-          key.includes("SECRET") ||
-          key.includes("PASSWORD"),
-        updated_by: session.user.id,
-        updated_at: now,
-      }));
 
-      if (!rows.length) {
+      if (!Object.keys(settings).length) {
         throw new Error("Preencha pelo menos uma configuração antes de salvar.");
       }
 
-      // Caminho principal V9: salva direto via Supabase REST.
-      // Isso elimina o bloqueio de CORS da Edge Function admin-save-settings.
-      await upsertRows<RuntimeSecretRow>("runtime_secrets", session.access_token, rows, "key");
-      toast.success("Credenciais salvas diretamente em runtime_secrets.");
-
-      // Tentativa opcional: registra/valida também via Edge Function.
-      // Se CORS/Edge falhar, não quebra o salvamento, porque o banco já foi atualizado.
-      callEdgeFunction("admin-save-settings", session.access_token, { settings }).catch(() => null);
+      const result = await callEdgeFunction<{ message?: string }>(
+        "admin-save-settings",
+        session.access_token,
+        { settings },
+      );
+      toast.success(result.message ?? "Credenciais salvas no backend seguro.");
 
       setForm((current) => ({ ...current, OPENAI_API_KEY: "", META_PAGE_ACCESS_TOKEN: "" }));
       try {
@@ -449,8 +361,8 @@ function RuntimeSettingsPanel({ onSaved }: { onSaved: () => Promise<void> }) {
         <div>
           <h3 className="text-lg font-bold">Configurar credenciais pelo painel</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Atalho de produção: os valores são salvos diretamente em runtime_secrets via Supabase
-            REST e usados pelas Edge Functions. As chaves não são retornadas para a tela.
+            Produção real: os valores são enviados para admin-save-settings no backend e salvos em
+            runtime_secrets com service role. As chaves não são retornadas para a tela.
           </p>
         </div>
         <Button
