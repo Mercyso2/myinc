@@ -4,7 +4,7 @@ import { stringifyError } from "../_shared/function-utils.ts";
 import { boolCfg, cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": Deno.env.get("CORS_ALLOW_ORIGIN") ?? "*",
+  "Access-Control-Allow-Origin": Deno.env.get("CORS_ALLOW_ORIGIN") ?? "http://localhost:5173",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 

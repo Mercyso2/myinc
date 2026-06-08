@@ -39,6 +39,16 @@ type AdminStatus = {
   database?: { connected: boolean; tables: Record<string, boolean> };
   storage?: Record<string, boolean>;
   edgeFunctions?: Record<string, boolean>;
+  imageDiagnostic?: {
+    openaiApiKey: boolean;
+    textModel: boolean;
+    imageModel: boolean;
+    storage: boolean;
+    creativeMediaBucket: boolean;
+    publicUrl: boolean;
+    generateImageFunction: boolean;
+    lastTechnicalError?: string | null;
+  };
 };
 
 function mapLog(row: SystemLogRow): SystemLog {
@@ -117,14 +127,18 @@ function Admin() {
         title="Painel ADM / Configurações Técnicas"
         description="Status real de Supabase, Edge Functions, OpenAI, Meta, Storage, tabelas, usuários e logs. Segredos nunca são exibidos."
         actions={
-          <Button
-            className="rounded-full bg-gradient-primary text-primary-foreground"
-            disabled={loading}
-            onClick={testConnections}
-          >
-            <ShieldCheck className="h-4 w-4" />
-            Testar conexões reais
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" disabled={loading} onClick={testConnections}>
+              <RadioTower className="h-4 w-4" /> Testar IA de Imagem
+            </Button>
+            <Button
+              className="rounded-full bg-gradient-primary text-primary-foreground"
+              disabled={loading}
+              onClick={testConnections}
+            >
+              <ShieldCheck className="h-4 w-4" /> Testar conexões reais
+            </Button>
+          </div>
         }
       />
       {loading ? <LoadingState label="Testando backend real..." /> : null}
@@ -150,6 +164,31 @@ function Admin() {
         </TabsList>
         <TabsContent value="chaves">
           <RuntimeSettingsPanel onSaved={testConnections} />
+          <div className="mb-5 rounded-3xl border border-primary/20 bg-card p-5 shadow-soft">
+            <h3 className="font-bold">Diagnóstico da IA de Imagem</h3>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {Object.entries({
+                "OPENAI_API_KEY presente": status?.imageDiagnostic?.openaiApiKey,
+                "Modelo de texto": status?.imageDiagnostic?.textModel,
+                "Modelo de imagem": status?.imageDiagnostic?.imageModel,
+                "Supabase Storage": status?.imageDiagnostic?.storage,
+                "Bucket creative-media": status?.imageDiagnostic?.creativeMediaBucket,
+                "Public URL": status?.imageDiagnostic?.publicUrl,
+                "Edge Function generate-image": status?.imageDiagnostic?.generateImageFunction,
+              }).map(([label, ok]) => (
+                <ConnectionStatus
+                  key={label}
+                  label={label}
+                  status={ok ? "online" : "offline"}
+                  detail={ok ? "ok" : "erro"}
+                />
+              ))}
+            </div>
+            <p className="mt-4 break-all text-xs text-muted-foreground">
+              Último erro técnico:{" "}
+              {status?.imageDiagnostic?.lastTechnicalError || "nenhum registrado"}
+            </p>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <ConnectionStatus
               label="Supabase frontend"

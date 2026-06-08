@@ -109,15 +109,28 @@ serve(async (req) => {
     );
 
     let storageStatus: Record<string, boolean> = {};
+    let creativeMediaPublic = false;
     try {
       const { data: bucketRows } = await admin.storage.listBuckets();
       const bucketSet = new Set((bucketRows ?? []).map((bucket) => bucket.name));
+      creativeMediaPublic = Boolean(
+        (bucketRows ?? []).find((bucket) => bucket.name === "creative-media")?.public,
+      );
       storageStatus = Object.fromEntries(buckets.map((bucket) => [bucket, bucketSet.has(bucket)]));
     } catch {
       storageStatus = Object.fromEntries(buckets.map((bucket) => [bucket, false]));
     }
 
     const connected = Object.values(tableStatus).some(Boolean);
+    const { data: lastImageError } = await admin
+      .from("system_logs")
+      .select("technical_detail,created_at")
+      .eq("module", "imagem")
+      .eq("status", "erro")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const publicStatus = publicRuntimeStatus(runtime);
 
     return json(req, {
       ok: true,
@@ -131,6 +144,16 @@ serve(async (req) => {
       },
       database: { connected, tables: tableStatus },
       storage: storageStatus,
+      imageDiagnostic: {
+        openaiApiKey: Boolean(publicStatus.openaiApiKey),
+        textModel: Boolean(publicStatus.openaiTextModel),
+        imageModel: Boolean(publicStatus.openaiImageModel),
+        storage: storageStatus["creative-media"] === true,
+        creativeMediaBucket: storageStatus["creative-media"] === true,
+        publicUrl: creativeMediaPublic,
+        generateImageFunction: true,
+        lastTechnicalError: lastImageError?.technical_detail ?? null,
+      },
       edgeFunctions: {
         adminStatus: true,
         adminSaveSettings: true,

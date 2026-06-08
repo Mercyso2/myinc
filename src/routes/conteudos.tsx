@@ -600,9 +600,9 @@ function Conteudos() {
             await generatePostContent(session!.access_token, selected!.id, feedback);
           })
         }
-        onGenerateImage={() =>
+        onGenerateImage={(feedback) =>
           runPostAction("Mídia gerada e salva.", () =>
-            generatePostImage(session!.access_token, selected!.id),
+            generatePostImage(session!.access_token, selected!.id, feedback),
           )
         }
         onImprove={(mode) =>

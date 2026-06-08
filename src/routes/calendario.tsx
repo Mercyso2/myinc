@@ -292,8 +292,10 @@ function Calendario() {
             generatePostContent(session!.access_token, selected!.id, feedback),
           )
         }
-        onGenerateImage={() =>
-          run("Imagem gerada.", () => generatePostImage(session!.access_token, selected!.id))
+        onGenerateImage={(feedback) =>
+          run("Imagem gerada.", () =>
+            generatePostImage(session!.access_token, selected!.id, feedback),
+          )
         }
         onArchive={() =>
           run("Post arquivado.", () => archivePost(session!.access_token, selected!.id), {
