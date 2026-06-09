@@ -5,6 +5,10 @@ export const RUNTIME_KEYS = [
   "OPENAI_IMAGE_FALLBACK_MODELS",
   "OPENAI_IMAGE_QUALITY",
   "OPENAI_IMAGE_FORMAT",
+  "OPENAI_IMAGE_SIZE_FEED",
+  "OPENAI_IMAGE_SIZE_STORY",
+  "OPENAI_IMAGE_SIZE_SQUARE",
+  "OPENAI_IMAGE_SIZE_FACEBOOK",
   "ENABLE_OPENAI_VIDEO",
   "OPENAI_VIDEO_MODEL",
   "OPENAI_VIDEO_SIZE",
@@ -42,9 +46,20 @@ type SupabaseLike = {
   };
 };
 
-export function getCorsHeaders(req: Request) {
+export function cfg(config: RuntimeConfig, key: string, fallback = "") {
+  const value = config[key] ?? Deno.env.get(key) ?? fallback;
+  return typeof value === "string" ? value.trim() : value;
+}
+
+export function getCorsHeaders(req: Request, runtime: RuntimeConfig = {}) {
+  const configured = cfg(runtime, "CORS_ALLOW_ORIGIN", "http://localhost:5173");
+  const origin = req.headers.get("Origin") ?? "";
+  const allowed = configured
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
   return {
-    "Access-Control-Allow-Origin": cfg({} as RuntimeConfig, "CORS_ALLOW_ORIGIN", "*"),
+    "Access-Control-Allow-Origin": allowed.includes(origin) ? origin : allowed[0],
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
       req.headers.get("Access-Control-Request-Headers") ||
@@ -54,20 +69,20 @@ export function getCorsHeaders(req: Request) {
   };
 }
 
-export function json(req: Request, body: unknown, status = 200) {
+export function json(req: Request, body: unknown, status = 200, runtime: RuntimeConfig = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
-      ...getCorsHeaders(req),
+      ...getCorsHeaders(req, runtime),
       "Content-Type": "application/json",
     },
   });
 }
 
-export function options(req: Request) {
+export function options(req: Request, runtime: RuntimeConfig = {}) {
   return new Response("ok", {
     status: 200,
-    headers: getCorsHeaders(req),
+    headers: getCorsHeaders(req, runtime),
   });
 }
 
@@ -98,10 +113,6 @@ export async function loadRuntimeConfig(supabase: SupabaseLike): Promise<Runtime
   return config;
 }
 
-export function cfg(config: RuntimeConfig, key: string, fallback = "") {
-  return config[key] ?? Deno.env.get(key) ?? fallback;
-}
-
 export function requiredCfg(config: RuntimeConfig, key: string, context = "Operação real") {
   const value = cfg(config, key);
   if (!value) throw new Error(`${key} ausente no painel/Secrets. ${context} não executada.`);
@@ -121,9 +132,16 @@ export function hasCfg(config: RuntimeConfig, key: string) {
 export function publicRuntimeStatus(config: RuntimeConfig) {
   return {
     openaiApiKey: hasCfg(config, "OPENAI_API_KEY"),
-    openaiTextModel: cfg(config, "OPENAI_TEXT_MODEL", "gpt-5.2"),
-    openaiImageModel: cfg(config, "OPENAI_IMAGE_MODEL", "gpt-image-1.5"),
+    openaiTextModel: cfg(config, "OPENAI_TEXT_MODEL", "gpt-5.5"),
+    openaiImageModel: cfg(config, "OPENAI_IMAGE_MODEL", "gpt-image-2"),
+    openaiImageFallbackModels: cfg(
+      config,
+      "OPENAI_IMAGE_FALLBACK_MODELS",
+      "gpt-image-1.5,gpt-image-1,gpt-image-1-mini",
+    ),
     openaiImageQuality: cfg(config, "OPENAI_IMAGE_QUALITY", "high"),
+    openaiImageSizeFeed: cfg(config, "OPENAI_IMAGE_SIZE_FEED", "1088x1360"),
+    openaiImageSizeStory: cfg(config, "OPENAI_IMAGE_SIZE_STORY", "1088x1936"),
     enableOpenaiVideo: cfg(config, "ENABLE_OPENAI_VIDEO", "false"),
     openaiVideoModel: cfg(config, "OPENAI_VIDEO_MODEL", "sora-2-pro"),
     mockAiProvider: cfg(config, "MOCK_AI_PROVIDER", "false"),

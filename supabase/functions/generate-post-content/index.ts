@@ -1,16 +1,12 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { stringifyError } from "../_shared/function-utils.ts";
-import { cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
+import { cfg, getCorsHeaders, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": Deno.env.get("CORS_ALLOW_ORIGIN") ?? "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-function json(body: unknown, status = 200) {
+function json(req: Request, body: unknown, status = 200, runtime: Record<string, string | null> = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...getCorsHeaders(req, runtime), "Content-Type": "application/json" },
   });
 }
 function requireEnv(name: string) {
@@ -18,16 +14,35 @@ function requireEnv(name: string) {
   if (!value) throw new Error(`${name} ausente no backend. Operação real não executada.`);
   return value;
 }
+function object(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+function extractResponseText(data: unknown) {
+  const payload = object(data);
+  if (typeof payload.output_text === "string") return payload.output_text;
+  if (Array.isArray(payload.output)) {
+    return payload.output
+      .flatMap((item) => (Array.isArray(object(item).content) ? object(item).content : []))
+      .map((content) => object(content).text ?? object(content).value ?? "")
+      .join("\n")
+      .trim();
+  }
+  const firstChoice = object(Array.isArray(payload.choices) ? payload.choices[0] : {});
+  return String(object(firstChoice.message).content ?? "").trim();
+}
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const runtimeForOptions = {} as Record<string, string | null>;
+  if (req.method === "OPTIONS") return new Response("ok", { headers: getCorsHeaders(req, runtimeForOptions) });
   const supabase = createClient(
     requireEnv("SUPABASE_URL"),
     requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
   );
   const runtime = await loadRuntimeConfig(supabase);
   const openAiKey = requiredCfg(runtime, "OPENAI_API_KEY", "Geração de conteúdo");
-  const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-5.2");
+  const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-5.5");
   async function log(row: Record<string, unknown>) {
     await supabase.from("system_logs").insert({ type: row.type ?? "ai", ...row });
   }
@@ -68,7 +83,7 @@ serve(async (req) => {
         .single();
       if (createError) throw createError;
       post = created;
-    } else return json({ error: "postId ou ideaId é obrigatório." }, 400);
+    } else return json(req, { error: "postId ou ideaId é obrigatório." }, 400, runtime);
     if (!post) throw new Error("Post não encontrado.");
 
     const brandId = String(post.brand_id);
@@ -115,71 +130,80 @@ serve(async (req) => {
         .limit(20),
     ]);
 
-    const masterPrompt = `Você é social media sênior, copywriter e diretor de arte para uma incorporadora/construtora premium. Crie conteúdo de produção real, não genérico.
+    const premiumPrompt = `Você é um social media sênior, copywriter, estrategista comercial e diretor de arte para a MYINC, incorporadora/construtora premium.
+
+MISSÃO: gerar uma publicação real, vendável e sofisticada para Instagram/Facebook, pronta para revisão humana.
+O resultado precisa parecer trabalho de agência premium: nada genérico, nada raso, nada com cara de template barato.
 
 POST: ${JSON.stringify(post)}
 MEMÓRIA DA MARCA: ${JSON.stringify(profile)}
-REGRAS ATIVAS: ${JSON.stringify(rules)}
+REGRAS ATIVAS DO CÉREBRO IA: ${JSON.stringify(rules)}
 PROMPTS BASE: ${JSON.stringify(prompts)}
 REFERÊNCIAS APROVADAS: ${JSON.stringify(references)}
 COMENTÁRIOS HUMANOS: ${JSON.stringify(comments)}
-FEEDBACKS: ${JSON.stringify(feedbacks)}
-INSTRUÇÃO: ${instruction ?? "melhorar conteúdo completo"}
+FEEDBACKS ANTERIORES: ${JSON.stringify(feedbacks)}
+INSTRUÇÃO ATUAL: ${instruction ?? "criar ou melhorar conteúdo completo"}
 
-Retorne somente JSON válido neste formato:
+PADRÃO CRIATIVO OBRIGATÓRIO:
+- Copy em português do Brasil, natural, elegante, persuasiva e sem exageros jurídicos/comerciais.
+- Headline curta, forte, com linguagem de incorporação premium.
+- CTA objetivo, sem parecer spam.
+- Hashtags poucas e estratégicas.
+- Creative brief deve orientar uma arte 4:5 equivalente a 1080x1350 para feed, ou o formato correto do post.
+- Image prompt deve ser SEM TEXTO NA IMAGEM, SEM LOGO, SEM LETRAS, SEM NÚMEROS; o app aplicará overlay depois.
+- Para imagem: detalhe cena, lente, luz, composição, materiais, paleta MYINC, área segura e negative prompt.
+- Para carrossel: crie narrativa de 5 a 8 páginas, cada página com visual diferente e continuidade de campanha.
+- Para Reels/Vídeo: roteiro com gancho de 3 segundos, cenas, narração, textos de tela curtos e CTA.
+- Se o conteúdo estiver abaixo de 90/100, corrija antes de devolver.
+
+Retorne SOMENTE JSON válido neste formato:
 {
   "title":"",
   "headline":"gancho curto e forte",
   "caption":"legenda pronta em português do Brasil, premium, clara e comercial",
   "hashtags":["#MYINC"],
   "cta":"",
-  "creative_brief":"direção visual objetiva",
-  "image_prompt":"prompt visual detalhado com arquitetura, luz, câmera, paleta, composição e restrições",
-  "master_prompt":"resumo do raciocínio de produção sem texto longo",
+  "creative_brief":"direção visual objetiva para designer/IA",
+  "image_prompt":"prompt visual premium detalhado, sem texto na imagem, sem logo, com composição 4:5 quando for feed",
+  "master_prompt":"resumo operacional do comando usado",
   "quality_score":0,
   "carousel_pages":[{"page":1,"title":"","text":"","visual_prompt":""}],
   "video_script":{"hook_3s":"","scenes":[""],"narration":"","screen_text":[""],"cta":""},
   "story_sequence":[{"screen":1,"text":"","cta":""}],
   "quality_review":{"copy_score":0,"visual_score":0,"brand_score":0,"cta_score":0,"problems":[],"suggestions":[]}
-}
+}`;
 
-Regras: qualidade mínima 88; se ficar abaixo, melhore antes de responder. Para Reels/Vídeo, preencha video_script. Para Carrossel, preencha 5 a 8 páginas. Texto na arte deve ser mínimo e legível. Evite promessas exageradas, frases genéricas e visual de panfleto.`;
-    const premiumPrompt = `${masterPrompt}
-
-REFORCO DE QUALIDADE:
-- Qualidade minima 92/100. Se a primeira resposta ficar simples, reescreva internamente antes de responder.
-- Carrossel precisa de narrativa progressiva pagina a pagina, com cada visual_prompt complementando o anterior.
-- Reels/Video precisa de roteiro com audio: trilha, ambiente, ritmo e narracao natural em portugues do Brasil quando fizer sentido.
-- Feed precisa parecer campanha premium real, nao card generico ou template barato.`;
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${openAiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        response_format: { type: "json_object" },
-        messages: [
+        input: [
           {
             role: "system",
-            content: "Você é copywriter e diretor de arte sênior. Responda JSON válido.",
+            content:
+              "Você é copywriter e diretor de arte sênior. Responda somente JSON válido, sem markdown.",
           },
           { role: "user", content: premiumPrompt },
         ],
+        text: { format: { type: "json_object" } },
       }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(stringifyError(data));
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? "{}");
+    const rawText = extractResponseText(data);
+    const parsed = JSON.parse(rawText || "{}");
     if (!parsed.caption || !parsed.image_prompt)
       throw new Error("OpenAI retornou JSON sem caption/image_prompt.");
-    const qualityScore = Math.max(90, Math.min(100, Number(parsed.quality_score ?? 92)));
+    const qualityScore = Math.max(0, Math.min(100, Number(parsed.quality_score ?? 0)));
     const qualityReview =
       parsed.quality_review && typeof parsed.quality_review === "object"
         ? { overall_score: qualityScore, ...parsed.quality_review }
         : {
             overall_score: qualityScore,
-            approved: qualityScore >= 90,
-            problems: [],
-            suggestions: [],
+            approved: qualityScore >= 88,
+            problems: qualityScore < 88 ? ["Score abaixo do padrão premium definido."] : [],
+            suggestions: qualityScore < 88 ? ["Solicite uma nova versão premium antes de publicar."] : [],
           };
     const update = {
       title: parsed.title,
@@ -189,13 +213,13 @@ REFORCO DE QUALIDADE:
       cta: parsed.cta,
       creative_brief: parsed.creative_brief,
       image_prompt: parsed.image_prompt,
-      master_prompt: parsed.master_prompt ?? masterPrompt,
+      master_prompt: parsed.master_prompt ?? premiumPrompt,
       quality_score: qualityScore,
       quality_review: qualityReview,
-      video_prompt: parsed.video_script
-        ? JSON.stringify(parsed.video_script, null, 2)
-        : post.video_prompt,
-      status: "aguardando_revisao",
+      video_prompt: parsed.video_script ? JSON.stringify(parsed.video_script, null, 2) : post.video_prompt,
+      status: qualityScore >= 88 ? "aguardando_revisao" : "ajuste_solicitado",
+      error_message: null,
+      technical_detail: null,
     };
     const { data: updatedPost, error: updateError } = await supabase
       .from("posts")
@@ -205,6 +229,7 @@ REFORCO DE QUALIDADE:
       .single();
     if (updateError) throw updateError;
     await supabase.from("post_versions").insert({
+      brand_id: brandId,
       post_id: post.id,
       version_label: `V${Date.now()}`,
       caption: parsed.caption,
@@ -218,10 +243,10 @@ REFORCO DE QUALIDADE:
       post_id: post.id,
       module: "copy",
       status: "sucesso",
-      friendly_message: "Conteúdo textual gerado com OpenAI.",
+      friendly_message: "Conteúdo textual gerado com OpenAI Responses API.",
       technical_detail: `model=${model}`,
     });
-    return json({ ok: true, post: updatedPost, content: parsed });
+    return json(req, { ok: true, post: updatedPost, content: parsed }, 200, runtime);
   } catch (error) {
     await log({
       module: "copy",
@@ -229,6 +254,6 @@ REFORCO DE QUALIDADE:
       friendly_message: "Falha ao gerar conteúdo textual.",
       technical_detail: stringifyError(error),
     });
-    return json({ error: stringifyError(error) || "Erro desconhecido" }, 400);
+    return json(req, { error: stringifyError(error) || "Erro desconhecido" }, 400, runtime);
   }
 });

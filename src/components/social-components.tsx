@@ -359,10 +359,7 @@ export function PostCard({
         : 0;
   return (
     <Card className="overflow-hidden rounded-2xl border-border bg-card shadow-soft transition hover:-translate-y-0.5 hover:shadow-elevated">
-      <div className="grid gap-0 sm:grid-cols-[230px_minmax(0,1fr)]">
-        <div className="bg-background/70 p-4">
-          <PostPreview post={post} />
-        </div>
+      <div className="flex flex-col">
         <CardContent className="p-5">
           <div className="flex flex-wrap items-center gap-2">
             <ChannelBadge channel={post.channel} />
@@ -426,6 +423,11 @@ export function PostCard({
             </Button>
           </div>
         </CardContent>
+        <div className="border-t border-border bg-background/70 p-4">
+          <div className="mx-auto w-full max-w-[360px]">
+            <PostPreview post={post} />
+          </div>
+        </div>
       </div>
     </Card>
   );

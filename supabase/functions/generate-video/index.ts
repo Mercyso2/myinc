@@ -32,14 +32,14 @@ function videoPrompt(post: Record<string, unknown>, profile: unknown, refs: unkn
     "Video/Reels vertical premium para MYINC Incorporadora, arquitetura contemporanea brasileira de alto padrao, com audio sincronizado.",
     `Tema: ${String(post.title ?? post.theme ?? post.headline ?? "MYINC")}.`,
     `Roteiro/brief: ${String(script ?? "reveal de arquitetura premium, materiais nobres e CTA elegante")}.`,
-    "Estrutura: 4 a 6 cenas conectadas, abertura forte nos 3 primeiros segundos, desenvolvimento visual com detalhes reais de arquitetura e fechamento com CTA discreto.",
-    "Movimento: camera suave, travelling lento, reveal de fachada/interiores, detalhes de materiais nobres, luz natural cinematografica, profundidade e ritmo de agencia premium.",
-    "Audio obrigatorio: trilha instrumental sofisticada, ambiente leve de arquitetura/empreendimento, transicoes sonoras suaves e narracao em portugues do Brasil quando fizer sentido. Voz natural, premium, sem tom robotico.",
-    "Estetica: imobiliario alto padrao, sofisticado, limpo, editorial, grafite/off-white/cobre discreto, sem visual generico.",
-    `Texto na tela: minimo, legivel, portugues do Brasil. CTA final: ${String(post.cta ?? "Fale com a equipe MYINC")}.`,
+    "Estrutura: 5 a 7 cenas conectadas, abertura forte nos 3 primeiros segundos, desenvolvimento visual com detalhes reais de arquitetura, lifestyle e fechamento com CTA discreto.",
+    "Movimento: camera suave, travelling lento, tilt/reveal de fachada/interiores, corte para detalhes de materiais nobres, luz natural cinematografica, profundidade e ritmo de agencia premium.",
+    "Audio obrigatorio: trilha instrumental sofisticada com crescendo leve, ambiencia real de empreendimento, transicoes sonoras suaves e narracao em portugues do Brasil quando fizer sentido. Voz natural, premium, sem tom robotico.",
+    "Estetica: imobiliario alto padrao, sofisticado, limpo, editorial, grafite/off-white/cobre discreto, imagem luminosa, sem visual generico.",
+    `Texto na tela: minimo, legivel, portugues do Brasil, uma frase curta por cena no maximo. CTA final: ${String(post.cta ?? "Fale com a equipe MYINC")}.`,
     `Memoria da marca: ${JSON.stringify(profile ?? {})}.`,
     `Referencias aprovadas: ${JSON.stringify(refs ?? [])}.`,
-    "Evitar: uma imagem estatica, card parado, pessoas deformadas, maos, logo falso, watermark, textos quebrados, visual panfleto, excesso de elementos, promessas exageradas.",
+    "Evitar: uma imagem estatica, card parado, slideshow simples, pessoas deformadas, maos, logo falso, watermark, textos quebrados, visual panfleto, excesso de elementos, promessas exageradas.",
   ].join("\n");
 }
 

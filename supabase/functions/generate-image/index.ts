@@ -1,17 +1,15 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { stringifyError } from "../_shared/function-utils.ts";
-import { cfg, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
+import { cfg, getCorsHeaders, loadRuntimeConfig, requiredCfg } from "../_shared/runtime-config.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": Deno.env.get("CORS_ALLOW_ORIGIN") ?? "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+type Row = Record<string, unknown>;
+type Runtime = Record<string, string | null>;
 
-function json(body: unknown, status = 200) {
+function json(req: Request, body: unknown, status = 200, runtime: Runtime = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...getCorsHeaders(req, runtime), "Content-Type": "application/json" },
   });
 }
 
@@ -21,11 +19,8 @@ function requireEnv(name: string) {
   return value;
 }
 
-function openAiSize(format = "") {
-  const normalized = String(format).toLowerCase();
-  if (normalized.includes("quadrado") || normalized.includes("thumbnail")) return "1024x1024";
-  if (normalized.includes("facebook") && !normalized.includes("story")) return "1536x1024";
-  return "1024x1536";
+function asObject(value: unknown): Row {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Row) : {};
 }
 
 function isCarouselFormat(format = "") {
@@ -36,61 +31,88 @@ function carouselPageCount(format = "") {
   return String(format).includes("8") ? 8 : 5;
 }
 
-function modelCandidates(runtime: Record<string, string | null>) {
-  const primary = cfg(runtime, "OPENAI_IMAGE_MODEL", "gpt-image-1.5");
-  const fallbacks = cfg(runtime, "OPENAI_IMAGE_FALLBACK_MODELS", "gpt-image-1,gpt-image-1-mini")
+function openAiSize(format = "", runtime: Runtime = {}) {
+  const normalized = String(format).toLowerCase();
+  if (normalized.includes("quadrado") || normalized.includes("thumbnail")) {
+    return cfg(runtime, "OPENAI_IMAGE_SIZE_SQUARE", "1024x1024");
+  }
+  if (normalized.includes("facebook") && !normalized.includes("story")) {
+    return cfg(runtime, "OPENAI_IMAGE_SIZE_FACEBOOK", "1536x1024");
+  }
+  if (normalized.includes("story") || normalized.includes("reels") || normalized.includes("vídeo") || normalized.includes("video")) {
+    return cfg(runtime, "OPENAI_IMAGE_SIZE_STORY", "1088x1936");
+  }
+  return cfg(runtime, "OPENAI_IMAGE_SIZE_FEED", "1088x1360");
+}
+
+function modelCandidates(runtime: Runtime) {
+  const primary = cfg(runtime, "OPENAI_IMAGE_MODEL", "gpt-image-2");
+  const fallbacks = cfg(runtime, "OPENAI_IMAGE_FALLBACK_MODELS", "gpt-image-1.5,gpt-image-1,gpt-image-1-mini")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
   return [...new Set([primary, ...fallbacks])];
 }
 
-function asObject(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
 function imagePrompt(
-  post: Record<string, unknown>,
+  post: Row,
   profile: unknown,
   visualRules: unknown,
   refs: unknown,
+  runtime: Runtime,
+  feedback?: unknown,
 ) {
+  const format = String(post.format ?? "Feed 4:5 / 1080x1350");
+  const size = openAiSize(format, runtime);
   return [
-    "Crie imagem publicitaria premium para social media da MYINC Incorporadora.",
-    `Post: ${String(post.title ?? post.theme ?? "MYINC")}.`,
-    `Brief: ${String(post.image_prompt ?? post.creative_brief ?? post.title ?? "Arquitetura premium")}.`,
-    `Formato: ${String(post.format ?? "Feed 4:5")}. Canal: ${String(post.channel ?? "Instagram")}. Objetivo: ${String(post.objective ?? "gerar desejo e leads qualificados")}.`,
-    "Direcao de arte: arquitetura contemporanea brasileira de alto padrao, luz natural cinematografica, materiais nobres, concreto, vidro, madeira e pedra.",
-    "Composicao: limpa, editorial, sofisticada, com profundidade realista, area segura para copy curta e sem aspecto de panfleto.",
-    "Paleta: grafite profundo, off-white, areia, cobre discreto. Sem neon, sem infantilizacao, sem visual generico.",
-    "Texto na arte: minimo e legivel. Se houver duvida, prefira sem texto e deixe espaco para overlay.",
-    "Nao inventar logo, nao deformar marca, nao usar marcas de terceiros.",
-    `Memoria visual: ${JSON.stringify(profile ?? {})}.`,
-    `Regras visuais ativas: ${JSON.stringify(visualRules ?? [])}.`,
-    `Referencias aprovadas: ${JSON.stringify(refs ?? [])}.`,
-    "Negative prompt: baixa qualidade, mockup generico, excesso de texto, letras distorcidas, logo falso, design amador, watermark, pessoas deformadas, maos defeituosas.",
-  ].join("\n");
+    "CRIE UMA IMAGEM PUBLICITÁRIA PREMIUM PARA SOCIAL MEDIA DA MYINC INCORPORADORA.",
+    "A saída deve parecer campanha real de incorporadora de alto padrão, não template barato, não panfleto e não card genérico.",
+    "IMPORTANTE: gerar a ARTE BASE SEM TEXTO, SEM LOGO, SEM LETRAS, SEM NÚMEROS E SEM MARCAS. O texto/copy será aplicado depois no editor do app.",
+    `FORMATO FINAL DO APP: ${format}. Para feed, preparar composição 4:5 equivalente a 1080x1350; geração técnica usada: ${size}.`,
+    `POST: ${String(post.title ?? post.theme ?? "MYINC")}.`,
+    `BRIEF: ${String(post.image_prompt ?? post.creative_brief ?? post.title ?? "Arquitetura contemporânea brasileira premium")}.`,
+    `OBJETIVO: ${String(post.objective ?? "gerar desejo, autoridade e leads qualificados")}. CANAL: ${String(post.channel ?? "Instagram/Facebook")}.`,
+    "DIREÇÃO DE ARTE: arquitetura contemporânea brasileira, alto padrão, estética editorial, sofisticada e comercial; materiais nobres como pedra natural, madeira, vidro, concreto bem acabado e paisagismo premium.",
+    "FOTOGRAFIA/RENDER: realismo fotográfico, lente arquitetônica profissional, perspectiva correta, luz natural cinematográfica, alta faixa dinâmica, profundidade elegante e acabamento impecável.",
+    "COMPOSIÇÃO: assunto principal forte, muito respiro, área segura limpa para headline e CTA, hierarquia visual clara, sem excesso de elementos, recorte pronto para Instagram.",
+    "PALETA MYINC: grafite profundo, off-white, areia, madeira natural, verde paisagismo e cobre apenas como acento discreto. Evitar neon, cores infantis e saturação exagerada.",
+    "NEGATIVE PROMPT: watermark, assinatura, texto deformado, logo falso, panfleto, colagem, template, mockup genérico, render barato, baixa resolução, pessoas deformadas, mãos defeituosas, geometria impossível, objetos duplicados, marca de terceiros.",
+    `MEMÓRIA DA MARCA: ${JSON.stringify(profile ?? {})}.`,
+    `REGRAS VISUAIS ATIVAS: ${JSON.stringify(visualRules ?? [])}.`,
+    `REFERÊNCIAS APROVADAS: ${JSON.stringify(refs ?? [])}.`,
+    feedback ? `FEEDBACK HUMANO OBRIGATÓRIO PARA ESTA REGERAÇÃO: ${String(feedback)}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
-function fallbackCarouselPages(post: Record<string, unknown>, count: number) {
+function fallbackCarouselPages(post: Row, count: number) {
+  const scenes = [
+    "imagem hero da fachada/empreendimento com maior impacto comercial",
+    "entrada, lobby ou paisagismo transmitindo exclusividade",
+    "interior integrado com materiais nobres e luz natural",
+    "detalhe de acabamento, textura e qualidade construtiva",
+    "lifestyle sofisticado e natural, sem pessoas em primeiro plano deformáveis",
+    "obra, precisão técnica ou confiança da incorporadora",
+    "vista, entorno e valorização imobiliária",
+    "fechamento aspiracional com espaço seguro para CTA",
+  ];
   return Array.from({ length: count }, (_, index) => ({
     page: index + 1,
-    title:
-      index === 0
-        ? String(post.headline ?? post.title ?? "MYINC")
-        : index === count - 1
-          ? String(post.cta ?? "Fale com a MYINC")
-          : `${String(post.theme ?? "MYINC")} - detalhe ${index}`,
-    text:
-      index === 0
-        ? "Gancho visual premium para abrir o carrossel."
-        : index === count - 1
-          ? "Fechamento com CTA claro e sofisticado."
-          : "Evolucao da narrativa com arquitetura, confianca e valor percebido.",
-    visual_prompt: `${String(post.image_prompt ?? post.creative_brief ?? post.title ?? "MYINC")} Pagina ${index + 1}/${count} de carrossel premium, continuidade visual, composicao limpa, pouco texto e alto padrao.`,
+    title: index === 0 ? String(post.headline ?? post.title ?? "MYINC") : `Página ${index + 1}`,
+    text: index === count - 1 ? String(post.cta ?? "Fale com a MYINC") : "Narrativa visual premium.",
+    visual_prompt: `${scenes[index]}; continuidade visual, mesma paleta, luz e linguagem; variar enquadramento e manter área segura para overlay`,
   }));
+}
+
+function pngInfo(bytes: Uint8Array) {
+  const png = bytes.length > 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return {
+    mime: png ? "image/png" : "",
+    width: png ? view.getUint32(16) : 0,
+    height: png ? view.getUint32(20) : 0,
+  };
 }
 
 async function generateImageBytes({
@@ -100,7 +122,7 @@ async function generateImageBytes({
   size,
 }: {
   openAiKey: string;
-  runtime: Record<string, string | null>;
+  runtime: Runtime;
   prompt: string;
   size: string;
 }) {
@@ -119,21 +141,31 @@ async function generateImageBytes({
       }),
     });
     const imageJson = await imageResponse.json().catch(() => ({}));
-    if (imageResponse.ok && imageJson.data?.[0]?.b64_json) {
-      const bytes = Uint8Array.from(atob(imageJson.data[0].b64_json), (c) => c.charCodeAt(0));
-      if (bytes.byteLength < 20_000) {
+    const encoded = asObject(Array.isArray(asObject(imageJson).data) ? asObject(imageJson).data[0] : {}).b64_json;
+    if (imageResponse.ok && typeof encoded === "string" && encoded) {
+      const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
+      const info = pngInfo(bytes);
+      if (info.mime !== "image/png") {
+        errors.push(`${model}: MIME inválido; esperado image/png`);
+        continue;
+      }
+      if (bytes.byteLength < 150_000) {
         errors.push(`${model}: imagem muito pequena (${bytes.byteLength} bytes)`);
         continue;
       }
-      return { bytes, usedModel: model };
+      if (info.width < 1024 || info.height < 1024) {
+        errors.push(`${model}: resolução baixa (${info.width}x${info.height})`);
+        continue;
+      }
+      return { bytes, usedModel: model, info };
     }
-    errors.push(`${model}: ${stringifyError(imageJson?.error ?? imageJson)}`);
+    errors.push(`${model}: HTTP ${imageResponse.status} ${stringifyError(asObject(imageJson).error ?? imageJson)}`);
   }
-  throw new Error(`Provedor de imagem nao retornou b64_json. ${errors.join(" | ")}`);
+  throw new Error(`Provedor de imagem nao retornou imagem valida. ${errors.join(" | ")}`);
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: getCorsHeaders(req) });
 
   const supabaseUrl = requireEnv("SUPABASE_URL");
   const serviceRole = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -141,13 +173,15 @@ serve(async (req) => {
   const runtime = await loadRuntimeConfig(supabase);
   const openAiKey = requiredCfg(runtime, "OPENAI_API_KEY", "Geracao de imagem");
 
-  async function log(row: Record<string, unknown>) {
+  async function log(row: Row) {
     await supabase.from("system_logs").insert({ type: row.type ?? "image", ...row });
   }
 
+  let postId: string | null = null;
   try {
-    const { postId } = await req.json();
-    if (!postId) return json({ error: "postId e obrigatorio." }, 400);
+    const body = await req.json().catch(() => ({}));
+    postId = String(body.postId ?? "");
+    if (!postId) return json(req, { ok: false, error: "postId e obrigatorio." }, 400, runtime);
 
     const { data: post, error: postError } = await supabase
       .from("posts")
@@ -156,33 +190,36 @@ serve(async (req) => {
       .single();
     if (postError || !post) throw postError ?? new Error("Post nao encontrado.");
 
-    const { data: profile } = await supabase
-      .from("brand_profiles")
-      .select("*")
-      .eq("brand_id", post.brand_id)
-      .maybeSingle();
-    const { data: visualRules } = await supabase
-      .from("brand_visual_rules")
-      .select("rule_type,content")
-      .eq("brand_id", post.brand_id)
-      .eq("active", true)
-      .is("archived_at", null);
-    const { data: refs } = await supabase
-      .from("library_items")
-      .select("name,notes,url,ai_usage_rule")
-      .eq("brand_id", post.brand_id)
-      .is("archived_at", null)
-      .limit(12);
-
+    const { data: bucketRows, error: bucketsError } = await supabase.storage.listBuckets();
     const mediaBucket = cfg(runtime, "MEDIA_BUCKET", "creative-media");
-    const basePrompt = imagePrompt(post, profile, visualRules, refs);
-    const latestVersion = await supabase
-      .from("post_versions")
-      .select("output_json")
-      .eq("post_id", post.id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const bucketRow = (bucketRows ?? []).find((bucket) => bucket.name === mediaBucket);
+    if (bucketsError || !bucketRow) throw new Error(`Bucket ${mediaBucket} nao encontrado: ${stringifyError(bucketsError)}`);
+    if (!bucketRow.public) throw new Error(`Bucket ${mediaBucket} precisa estar publico para preview/publicacao.`);
+
+    const [{ data: profile }, { data: visualRules }, { data: refs }, latestVersion] = await Promise.all([
+      supabase.from("brand_profiles").select("*").eq("brand_id", post.brand_id).maybeSingle(),
+      supabase
+        .from("brand_visual_rules")
+        .select("rule_type,content")
+        .eq("brand_id", post.brand_id)
+        .eq("active", true)
+        .is("archived_at", null),
+      supabase
+        .from("library_items")
+        .select("name,notes,url,ai_usage_rule")
+        .eq("brand_id", post.brand_id)
+        .is("archived_at", null)
+        .limit(12),
+      supabase
+        .from("post_versions")
+        .select("output_json")
+        .eq("post_id", post.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    const basePrompt = imagePrompt(post, profile, visualRules, refs, runtime, body.feedback);
     const latestOutput = asObject(latestVersion.data?.output_json);
     const count = carouselPageCount(String(post.format ?? ""));
     const carouselPages =
@@ -199,19 +236,23 @@ serve(async (req) => {
     }
 
     async function createAsset(prompt: string, label: string, index: number, isFinal: boolean) {
-      const { bytes, usedModel } = await generateImageBytes({
+      const { bytes, usedModel, info } = await generateImageBytes({
         openAiKey,
         runtime,
         prompt,
-        size: openAiSize(post.format),
+        size: openAiSize(post.format, runtime),
       });
       const path = `${post.brand_id}/${post.id}/${crypto.randomUUID()}.png`;
       const { error: uploadError } = await supabase.storage
         .from(mediaBucket)
-        .upload(path, bytes, { contentType: "image/png", upsert: false });
+        .upload(path, bytes, { contentType: info.mime, upsert: false });
       if (uploadError) throw uploadError;
       const { data: publicUrl } = supabase.storage.from(mediaBucket).getPublicUrl(path);
       const mediaUrl = publicUrl.publicUrl;
+      if (!mediaUrl.startsWith("https://")) throw new Error("Storage nao retornou URL publica HTTPS.");
+      const head = await fetch(mediaUrl, { method: "HEAD" });
+      if (!head.ok) throw new Error(`URL publica inacessivel apos upload: HTTP ${head.status}`);
+
       const isCarousel = isCarouselFormat(String(post.format ?? ""));
       const { data: mediaAsset, error: mediaAssetError } = await supabase
         .from("media_assets")
@@ -226,12 +267,10 @@ serve(async (req) => {
           url: mediaUrl,
           public_url: mediaUrl,
           preview_url: mediaUrl,
-          mime_type: "image/png",
+          mime_type: info.mime,
           size_bytes: bytes.byteLength,
           status: "ativo",
-          tags: isCarousel
-            ? ["ia", "myinc", "carrossel", `pagina-${index}`]
-            : ["ia", "myinc", "feed"],
+          tags: isCarousel ? ["ia", "myinc", "carrossel", `pagina-${index}`] : ["ia", "myinc", "feed-4-5"],
           origin: `openai:${usedModel}`,
           usage_context: isCarousel ? "carousel_page" : "post_image",
           ai_allowed: true,
@@ -242,7 +281,9 @@ serve(async (req) => {
           notes: prompt,
           metadata: {
             image_model: usedModel,
-            image_size: openAiSize(post.format),
+            image_size: openAiSize(post.format, runtime),
+            width: info.width,
+            height: info.height,
             prompt,
             carousel_page: isCarousel ? index : null,
           },
@@ -261,10 +302,9 @@ serve(async (req) => {
         const pagePrompt = [
           basePrompt,
           `CARROSSEL MYINC - pagina ${pageNumber}/${count}.`,
-          `Titulo curto sugerido: ${String(pageObject.title ?? post.headline ?? post.title)}.`,
-          `Mensagem da pagina: ${String(pageObject.text ?? post.caption ?? "")}.`,
+          `Mensagem da pagina para orientar visual, sem escrever texto na imagem: ${String(pageObject.text ?? post.caption ?? "")}.`,
           `Direcao visual especifica: ${String(pageObject.visual_prompt ?? post.image_prompt ?? post.creative_brief ?? "")}.`,
-          "Gerar uma imagem unica para esta pagina, com continuidade visual da campanha e progressao narrativa. Nao repetir exatamente o enquadramento da pagina anterior.",
+          "Gerar uma imagem unica para esta pagina, com continuidade visual da campanha, variando enquadramento e mantendo area segura para overlay.",
         ].join("\n");
         generated.push(
           await createAsset(
@@ -283,36 +323,50 @@ serve(async (req) => {
     const carouselMediaUrls = isCarouselFormat(String(post.format ?? ""))
       ? generated.map((item) => item.mediaUrl)
       : [];
+    if (!mediaUrl || (isCarouselFormat(String(post.format ?? "")) && carouselMediaUrls.length !== count)) {
+      throw new Error("Quality gate final: URLs geradas incompletas.");
+    }
     const mediaAsset = generated[0]?.mediaAsset;
     const usedModel = generated[0]?.model ?? "";
     const finalPrompt = isCarouselFormat(String(post.format ?? ""))
       ? `Carrossel com ${generated.length} paginas geradas sequencialmente.`
       : basePrompt;
 
-    const { error: versionError } = await supabase.from("post_versions").insert({
-      brand_id: post.brand_id,
-      post_id: post.id,
-      version_label: `V${Date.now()}`,
-      caption: post.caption,
-      image_prompt: finalPrompt,
-      media_url: mediaUrl,
-      quality_score: post.quality_score,
-      output_json: {
-        image_model: usedModel,
-        image_size: openAiSize(post.format),
+    const { data: version, error: versionError } = await supabase
+      .from("post_versions")
+      .insert({
+        brand_id: post.brand_id,
+        post_id: post.id,
+        version_label: `V${Date.now()}`,
+        caption: post.caption,
+        image_prompt: finalPrompt,
         media_url: mediaUrl,
-        carousel_pages: isCarouselFormat(String(post.format ?? "")) ? carouselPages : [],
-        carousel_media_urls: carouselMediaUrls,
-      },
-    });
+        quality_score: post.quality_score,
+        human_feedback: body.feedback ?? null,
+        is_current: true,
+        output_json: {
+          image_model: usedModel,
+          image_size: openAiSize(post.format, runtime),
+          media_url: mediaUrl,
+          carousel_pages: isCarouselFormat(String(post.format ?? "")) ? carouselPages : [],
+          carousel_media_urls: carouselMediaUrls,
+          prompts: generated.map((item) => item.prompt),
+        },
+      })
+      .select()
+      .single();
     if (versionError) throw versionError;
+
+    await supabase.from("post_versions").update({ is_current: false }).eq("post_id", post.id).neq("id", version.id);
 
     const { data: updatedPost, error: updateError } = await supabase
       .from("posts")
       .update({
         media_url: mediaUrl,
         carousel_media_urls: carouselMediaUrls,
+        current_version_id: version.id,
         error_message: null,
+        technical_detail: null,
         status: "aguardando_revisao",
         updated_at: new Date().toISOString(),
       })
@@ -328,25 +382,40 @@ serve(async (req) => {
       status: "sucesso",
       friendly_message: isCarouselFormat(String(post.format ?? ""))
         ? `Carrossel com ${carouselMediaUrls.length} paginas gerado.`
-        : "Imagem real gerada, validada e salva no Supabase Storage.",
-      technical_detail: `media_asset=${mediaAsset?.id}; model=${usedModel}; size=${openAiSize(post.format)}; urls=${generated.length}`,
+        : "Imagem real 4:5 gerada, validada e salva no Supabase Storage.",
+      technical_detail: `media_asset=${mediaAsset?.id}; model=${usedModel}; size=${openAiSize(post.format, runtime)}; urls=${generated.length}`,
     });
 
-    return json({
+    return json(req, {
       ok: true,
+      message: "Imagem real gerada e validada.",
       post: updatedPost,
       mediaUrl,
       mediaAsset,
       model: usedModel,
+      prompt: basePrompt,
       carouselMediaUrls,
-    });
+    }, 200, runtime);
   } catch (error) {
+    const technical = stringifyError(error);
     await log({
+      post_id: postId,
       module: "imagem",
       status: "erro",
       friendly_message: "Falha ao gerar imagem real.",
-      technical_detail: stringifyError(error),
+      technical_detail: technical,
     });
-    return json({ error: stringifyError(error) || "Erro desconhecido" }, 400);
+    if (postId) {
+      await supabase
+        .from("posts")
+        .update({
+          status: "erro_imagem",
+          error_message: "Não foi possível gerar ou salvar a imagem. Verifique Secrets, modelo OpenAI, bucket e URL pública.",
+          technical_detail: technical,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", postId);
+    }
+    return json(req, { ok: false, error: technical || "Erro desconhecido" }, 400, runtime);
   }
 });
