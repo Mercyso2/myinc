@@ -55,16 +55,38 @@ export function updatePostContent(
 }
 
 export function generatePostContent(token: string, postId: string, instruction?: string) {
-  return callEdgeFunction<{ ok: true; post: PostRow }>("generate-post-content", token, {
+  return callEdgeFunction<{ ok: true; post: PostRow; message?: string }>("generate-post-content", token, {
     postId,
     instruction,
   });
 }
 
-export function generatePostImage(token: string, postId: string) {
-  return callEdgeFunction<{ ok: true; post: PostRow; mediaUrl: string }>("generate-image", token, {
+export function generatePostImage(token: string, postId: string, jobType?: "image" | "carousel" | "video") {
+  return callEdgeFunction<{
+    ok: true;
+    queued?: boolean;
+    status?: string;
+    jobId?: string;
+    jobType?: string;
+    post: PostRow;
+    mediaUrl?: string | null;
+    carouselMediaUrls?: string[];
+    message?: string;
+  }>("generate-image", token, {
     postId,
+    jobType,
   });
+}
+
+export function getGenerationStatus(token: string, payload: { jobId?: string; postId?: string }) {
+  return callEdgeFunction<{
+    ok: true;
+    job: GenerationJobRow | null;
+    children: GenerationJobRow[];
+    events: unknown[];
+    assets: unknown[];
+    post?: PostRow | null;
+  }>("generation-status", token, payload);
 }
 
 export function publishPostNow(token: string, postId: string) {
@@ -90,22 +112,26 @@ export function generateImagesBatch(
     processed: number;
     requested: number;
     generated: number;
+    queued?: number;
     remaining: number;
     results: unknown[];
+    message?: string;
   }>("generate-images-batch", token, payload);
 }
 
 export function generateVideosBatch(
   token: string,
-  payload: { brandId?: string; postIds?: string[]; force?: boolean; limit?: number },
+  payload: { brandId?: string; postIds?: string[]; force?: boolean; limit?: number; provider?: string },
 ) {
   return callEdgeFunction<{
     ok: true;
     processed: number;
     requested: number;
     generated: number;
+    queued?: number;
     remaining: number;
     results: unknown[];
+    message?: string;
   }>("generate-videos-batch", token, payload);
 }
 

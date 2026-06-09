@@ -135,6 +135,8 @@ export type PostRow = RowBase & {
   video_progress?: number | null;
   video_poster_url?: string | null;
   carousel_media_urls?: string[] | null;
+  current_version_id?: string | null;
+  technical_detail?: string | null;
   quality_score?: number | null;
   quality_review?: Json;
   status?: string | null;
@@ -152,9 +154,11 @@ export type PostVersionRow = RowBase & {
   post_id: string;
   version_label: string;
   caption?: string | null;
+  image_prompt?: string | null;
   media_url?: string | null;
   output_json?: Json;
   quality_score?: number | null;
+  human_feedback?: string | null;
   is_current?: boolean | null;
 };
 
@@ -177,6 +181,7 @@ export type MediaAssetRow = RowBase & {
   url?: string | null;
   source_url?: string | null;
   public_url?: string | null;
+  preview_url?: string | null;
   mime_type?: string | null;
   size_bytes?: number | null;
   status?: string | null;
@@ -190,6 +195,10 @@ export type MediaAssetRow = RowBase & {
   ai_allowed: boolean;
   metadata?: Json;
   uploaded_at?: string | null;
+  storage_bucket?: string | null;
+  storage_path?: string | null;
+  is_final?: boolean | null;
+  used_in_publish?: boolean | null;
 };
 
 export type LibraryItemRow = RowBase & {
@@ -242,10 +251,24 @@ export type SystemLogRow = RowBase & {
 
 export type GenerationJobRow = RowBase & {
   post_id?: string | null;
+  parent_job_id?: string | null;
+  job_type?: string | null;
   type?: string | null;
   provider?: string | null;
   status?: string | null;
+  priority?: number | null;
+  progress?: number | null;
+  attempt_count?: number | null;
+  max_attempts?: number | null;
+  payload?: Json;
   input_json?: Json;
+  result?: Json;
   output_json?: Json;
   error_message?: string | null;
+  technical_detail?: string | null;
+  locked_at?: string | null;
+  locked_by?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  next_attempt_at?: string | null;
 };
