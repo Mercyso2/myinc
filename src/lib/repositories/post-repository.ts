@@ -35,6 +35,14 @@ export function restorePost(token: string, id: string, status = "aguardando_revi
   return postRepository.restore(token, id, { status } as Partial<PostRow>);
 }
 
+export function deletePost(token: string, id: string) {
+  // Exclusão segura: remove da operação e do calendário sem apagar histórico físico do banco.
+  return postRepository.softDelete(token, id, {
+    status: "excluido",
+    archived_at: new Date().toISOString(),
+  } as Partial<PostRow>);
+}
+
 export function updatePostContent(
   token: string,
   id: string,
