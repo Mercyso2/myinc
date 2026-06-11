@@ -2,5 +2,16 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "bun install --frozen-lockfile",
-  "buildCommand": "NITRO_PRESET=vercel bun run build"
+  "buildCommand": "NITRO_PRESET=vercel bun run build",
+  "functions": {
+    "api/worker/process.js": {
+      "maxDuration": 300
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/worker/process",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }
