@@ -36,7 +36,6 @@ export function restorePost(token: string, id: string, status = "aguardando_revi
 }
 
 export function deletePost(token: string, id: string) {
-  // Exclusão segura: remove da operação e do calendário sem apagar histórico físico do banco.
   return postRepository.softDelete(token, id, {
     status: "excluido",
     archived_at: new Date().toISOString(),
@@ -63,13 +62,14 @@ export function updatePostContent(
 }
 
 export function generatePostContent(token: string, postId: string, instruction?: string) {
-  return callEdgeFunction<{ ok: true; post: PostRow; message?: string }>("generate-post-content", token, {
+  return callEdgeFunction<{ ok: true; post: PostRow; message?: string }>("generate-post-content-safe", token, {
     postId,
     instruction,
   });
 }
 
 export function generatePostImage(token: string, postId: string, jobType?: "image" | "carousel" | "video") {
+  const fn = jobType === "carousel" ? "generate-image" : "generate-image-fast-safe";
   return callEdgeFunction<{
     ok: true;
     queued?: boolean;
@@ -80,7 +80,7 @@ export function generatePostImage(token: string, postId: string, jobType?: "imag
     mediaUrl?: string | null;
     carouselMediaUrls?: string[];
     message?: string;
-  }>("generate-image", token, {
+  }>(fn, token, {
     postId,
     jobType,
   });
@@ -217,49 +217,4 @@ export function improvePost(
     mode,
     regenerateMedia,
   });
-}
-
-export function reviewPostQuality(token: string, postId: string) {
-  return callEdgeFunction<{ ok: true; post: PostRow; review: unknown }>(
-    "review-post-quality",
-    token,
-    { postId },
-  );
-}
-
-export function renderPostTemplate(token: string, postId: string) {
-  return callEdgeFunction<{ ok: true; post: PostRow; mediaUrl: string }>("render-template", token, {
-    postId,
-  });
-}
-
-export function renderTemplatesBatch(
-  token: string,
-  payload: { brandId?: string; postIds?: string[] },
-) {
-  return callEdgeFunction<{ ok: true; processed: number; results: unknown[] }>(
-    "render-templates-batch",
-    token,
-    payload,
-  );
-}
-
-export function createLocalBackup(token: string, label = "manual") {
-  return callEdgeFunction<{ ok: true; backup: unknown; backups: unknown[] }>(
-    "backup-create",
-    token,
-    {
-      label,
-    },
-  );
-}
-
-export function listLocalBackups(token: string) {
-  return callEdgeFunction<{
-    ok: true;
-    backups: unknown[];
-    dbPath: string;
-    backupDir: string;
-    uploadDir: string;
-  }>("backup-list", token, {});
 }
