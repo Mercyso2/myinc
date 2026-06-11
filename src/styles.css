@@ -12,7 +12,6 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
-
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -51,54 +50,43 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px -12px oklch(0 0 0 / 0.12);
   --shadow-elevated: 0 4px 12px -4px oklch(0 0 0 / 0.1), 0 24px 48px -20px oklch(0 0 0 / 0.22);
-  --shadow-glow:
-    0 0 0 1px color-mix(in oklab, var(--primary) 18%, transparent),
-    0 12px 40px -12px color-mix(in oklab, var(--primary) 45%, transparent);
+  --shadow-glow: 0 0 0 1px color-mix(in oklab, var(--primary) 18%, transparent), 0 12px 40px -12px color-mix(in oklab, var(--primary) 45%, transparent);
 }
 
 :root {
   --radius: 0.9rem;
-
   --background: oklch(0.985 0.003 60);
   --foreground: oklch(0.205 0.015 50);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.205 0.015 50);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.205 0.015 50);
-
   --primary: oklch(0.62 0.155 48);
   --primary-foreground: oklch(0.99 0.005 60);
   --primary-glow: oklch(0.72 0.15 55);
-
   --secondary: oklch(0.96 0.005 60);
   --secondary-foreground: oklch(0.245 0.015 50);
   --muted: oklch(0.965 0.004 60);
   --muted-foreground: oklch(0.52 0.012 50);
   --accent: oklch(0.95 0.02 55);
   --accent-foreground: oklch(0.3 0.04 50);
-
   --destructive: oklch(0.58 0.22 27);
   --destructive-foreground: oklch(0.99 0.005 60);
   --success: oklch(0.6 0.13 150);
   --success-foreground: oklch(0.99 0.005 60);
   --warning: oklch(0.74 0.15 75);
   --warning-foreground: oklch(0.22 0.02 60);
-
   --border: oklch(0.91 0.006 60);
   --input: oklch(0.91 0.006 60);
   --ring: oklch(0.62 0.155 48);
-
   --chart-1: oklch(0.62 0.155 48);
   --chart-2: oklch(0.72 0.15 55);
   --chart-3: oklch(0.55 0.04 50);
   --chart-4: oklch(0.78 0.1 70);
   --chart-5: oklch(0.4 0.02 50);
-
   --sidebar: oklch(0.21 0.012 50);
   --sidebar-foreground: oklch(0.9 0.005 60);
   --sidebar-primary: oklch(0.62 0.155 48);
@@ -116,35 +104,29 @@
   --card-foreground: oklch(0.205 0.015 50);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.205 0.015 50);
-
   --primary: oklch(0.62 0.155 48);
   --primary-foreground: oklch(0.99 0.005 60);
   --primary-glow: oklch(0.72 0.15 55);
-
   --secondary: oklch(0.96 0.005 60);
   --secondary-foreground: oklch(0.245 0.015 50);
   --muted: oklch(0.965 0.004 60);
   --muted-foreground: oklch(0.52 0.012 50);
   --accent: oklch(0.95 0.02 55);
   --accent-foreground: oklch(0.3 0.04 50);
-
   --destructive: oklch(0.58 0.22 27);
   --destructive-foreground: oklch(0.99 0.005 60);
   --success: oklch(0.6 0.13 150);
   --success-foreground: oklch(0.99 0.005 60);
   --warning: oklch(0.74 0.15 75);
   --warning-foreground: oklch(0.22 0.02 60);
-
   --border: oklch(0.91 0.006 60);
   --input: oklch(0.91 0.006 60);
   --ring: oklch(0.62 0.155 48);
-
   --chart-1: oklch(0.62 0.155 48);
   --chart-2: oklch(0.72 0.15 55);
   --chart-3: oklch(0.55 0.04 50);
   --chart-4: oklch(0.78 0.1 70);
   --chart-5: oklch(0.4 0.02 50);
-
   --sidebar: oklch(0.96 0.004 60);
   --sidebar-foreground: oklch(0.205 0.015 50);
   --sidebar-primary: oklch(0.62 0.155 48);
@@ -156,37 +138,42 @@
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
+  * { border-color: var(--color-border); box-sizing: border-box; }
+  html { width: 100%; overflow-x: hidden; text-size-adjust: 100%; }
   body {
+    width: 100%;
+    overflow-x: hidden;
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
+  img, video, canvas, svg { max-width: 100%; height: auto; }
+  button, input, textarea, select { font: inherit; max-width: 100%; }
+  pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
   ::selection { background-color: color-mix(in oklab, var(--primary) 28%, transparent); }
 }
 
 @layer utilities {
-  .text-gradient {
-    background: linear-gradient(100deg, var(--primary), var(--primary-glow));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
+  .text-gradient { background: linear-gradient(100deg, var(--primary), var(--primary-glow)); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .bg-gradient-primary { background-image: linear-gradient(120deg, var(--primary), var(--primary-glow)); }
   .shadow-soft { box-shadow: var(--shadow-soft); }
   .shadow-elevated { box-shadow: var(--shadow-elevated); }
   .shadow-glow { box-shadow: var(--shadow-glow); }
-
-  .library-logo-preview,
-  .library-transparent-preview {
+  .safe-scroll-x { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .mobile-stack { display: grid; gap: 0.75rem; grid-template-columns: minmax(0, 1fr); }
+  .library-logo-preview, .library-transparent-preview {
     background-color: #fffdf8;
-    background-image:
-      linear-gradient(45deg, rgba(15, 15, 16, 0.055) 25%, transparent 25%),
-      linear-gradient(-45deg, rgba(15, 15, 16, 0.055) 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, rgba(15, 15, 16, 0.055) 75%),
-      linear-gradient(-45deg, transparent 75%, rgba(15, 15, 16, 0.055) 75%);
+    background-image: linear-gradient(45deg, rgba(15, 15, 16, 0.055) 25%, transparent 25%), linear-gradient(-45deg, rgba(15, 15, 16, 0.055) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(15, 15, 16, 0.055) 75%), linear-gradient(-45deg, transparent 75%, rgba(15, 15, 16, 0.055) 75%);
     background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
     background-size: 16px 16px;
   }
+}
+
+@media (max-width: 640px) {
+  .rounded-3xl { border-radius: 1rem; }
+  .shadow-elevated, .shadow-glow { box-shadow: var(--shadow-soft); }
+  [class*="grid-cols-"] { min-width: 0; }
+  .max-w-7xl, .max-w-6xl, .max-w-5xl { max-width: 100%; }
+  .fixed.inset-0 { padding-left: 0.5rem; padding-right: 0.5rem; }
 }
