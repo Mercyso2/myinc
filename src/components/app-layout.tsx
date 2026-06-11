@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from "react";
-import { LogOut, Menu, Plus } from "lucide-react";
+import { LogOut, Menu, Moon, Plus, Sun } from "lucide-react";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth";
+import { useTheme } from "@/components/theme-provider";
 
 const APP_VERSION = "1.4";
 
@@ -13,6 +14,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const auth = useAuth();
+  const { theme, toggle } = useTheme();
 
   if (pathname === "/login") {
     return (
@@ -51,6 +53,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <Button className="hidden gap-2 rounded-full bg-gradient-primary text-primary-foreground shadow-glow hover:opacity-95 md:inline-flex">
             <Plus className="h-4 w-4" />
             Novo conteúdo
+          </Button>
+          <Button variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full" onClick={toggle} aria-label="Alternar tema claro/escuro" title="Alternar tema">
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
           <Button variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full md:hidden" onClick={() => void auth.logout()} aria-label="Sair">
             <LogOut className="h-4 w-4" />
