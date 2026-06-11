@@ -11,6 +11,11 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "preview:host": "vite preview --host 0.0.0.0 --port 4173",
+    "start": "npm run preview:host",
+    "production": "npm run build",
+    "hosting:build": "npm ci && npm run build",
+    "hosting:start": "npm run preview:host",
     "lint": "eslint .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
@@ -21,10 +26,6 @@
     "local:reset": "node -e \"const fs=require('fs');fs.rmSync('data/myinc-local-db.json',{force:true});console.log('Banco local resetado. Rode npm run local.')\"",
     "local:check": "node --check server/local-api.mjs && npm run typecheck && npm run build",
     "local:backup-dir": "node -e \"console.log(require('path').resolve('data/backups'))\"",
-    "start": "node server/local-api.mjs",
-    "production": "npm run build && node server/local-api.mjs",
-    "hosting:build": "npm ci && npm run build",
-    "hosting:start": "node server/local-api.mjs",
     "hosting:update": "node scripts/update-production.mjs",
     "backup:create": "node scripts/backup-now.mjs",
     "backup:restore": "node scripts/restore-backup.mjs",
@@ -117,13 +118,11 @@
     },
     "files": [
       "dist/client/**/*",
-      "server/**/*",
       "electron/**/*",
       "package.json",
       "data/.gitkeep"
     ],
     "extraResources": [
-      "server",
       "dist/client"
     ],
     "win": {
