@@ -1,6 +1,6 @@
 {
   "name": "myinc-social-media-ai",
-  "version": "4.0.0-media-engine-production",
+  "version": "1.4.0",
   "description": "MYINC Social Media AI — SaaS premium em português para planejamento, criação, revisão e publicação de social media com IA.",
   "private": true,
   "sideEffects": false,
@@ -118,15 +118,11 @@
     },
     "files": [
       "dist/client/**/*",
-      "electron/**/*",
-      "package.json",
-      "data/.gitkeep"
-    ],
-    "extraResources": [
-      "dist/client"
+      "electron/**/*"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
