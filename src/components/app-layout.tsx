@@ -7,6 +7,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth";
 
+const APP_VERSION = "1.4";
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -42,7 +44,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs text-muted-foreground sm:text-sm">
-              MYINC Creative Studio
+              MYINC Creative Studio <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-[10px] font-bold text-primary">v{APP_VERSION}</span>
             </div>
           </div>
 
