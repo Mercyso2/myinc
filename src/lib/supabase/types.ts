@@ -88,6 +88,7 @@ export type MonthlyPlanRow = RowBase & {
 
 export type PostIdeaRow = RowBase & {
   monthly_plan_id?: string | null;
+  converted_post_id?: string | null;
   title: string;
   headline?: string | null;
   short_text?: string | null;
@@ -113,6 +114,7 @@ export type PostRow = RowBase & {
   monthly_plan_id?: string | null;
   post_idea_id?: string | null;
   source_idea_id?: string | null;
+  batch_id?: string | null;
   title: string;
   channel: string;
   format?: string | null;
@@ -252,6 +254,7 @@ export type SystemLogRow = RowBase & {
 export type GenerationJobRow = RowBase & {
   post_id?: string | null;
   parent_job_id?: string | null;
+  batch_id?: string | null;
   job_type?: string | null;
   type?: string | null;
   provider?: string | null;
