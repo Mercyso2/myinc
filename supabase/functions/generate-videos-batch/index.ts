@@ -21,46 +21,38 @@ serve(async (req) => {
         .select("id,format")
         .eq("brand_id", payload.brandId)
         .or("format.ilike.%reels%,format.ilike.%video%,format.ilike.%vídeo%")
-        .limit(20);
+        .limit(1);
       if (error) throw error;
       postIds = (data ?? []).map((row) => row.id);
     }
 
-    const maxPerRun = Math.max(1, Math.min(3, Number(payload.limit ?? 2)));
-    const selectedPostIds = postIds.slice(0, maxPerRun);
+    const selectedPostIds = postIds.slice(0, 1);
     const remaining = Math.max(0, postIds.length - selectedPostIds.length);
     const results: unknown[] = [];
     let generated = 0;
+
     for (const postId of selectedPostIds) {
       try {
         const result = await callFunction(req, "generate-video", { postId, force: payload.force });
         results.push({ postId, ok: true, result });
         generated++;
       } catch (error) {
-        results.push({
-          postId,
-          ok: false,
-          error: stringifyError(error),
-        });
+        results.push({ postId, ok: false, error: stringifyError(error) });
       }
     }
+
     const responseBody = {
-      ok: generated > 0,
+      ok: generated > 0 || selectedPostIds.length === 0,
       processed: selectedPostIds.length,
       requested: postIds.length,
       generated,
       remaining,
       results,
+      message: "Processamento limitado a 1 video por chamada para evitar timeout.",
     };
+
     if (selectedPostIds.length && generated === 0) {
-      return json(
-        req,
-        {
-          ...responseBody,
-          error: "Nenhum video foi gerado. Veja o primeiro erro em results ou system_logs/video.",
-        },
-        400,
-      );
+      return json(req, { ...responseBody, error: "Nenhum video foi gerado." }, 400);
     }
     return json(req, responseBody);
   } catch (error) {
