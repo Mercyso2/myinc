@@ -38,3 +38,9 @@ alter table if exists public.posts
 
 create index if not exists idx_posts_batch_id
   on public.posts (batch_id);
+
+alter table if exists public.post_ideas
+  add column if not exists converted_post_id uuid;
+
+create index if not exists idx_post_ideas_converted_post_id
+  on public.post_ideas (converted_post_id);
