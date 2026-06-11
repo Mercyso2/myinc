@@ -14,6 +14,7 @@ import { AI_FOCUS_MODES, MYINC_LIGHT_PROFILE_RULE, type AiFocusMode } from "@/li
 import { useAuth } from "@/lib/auth";
 import { getFirstAccessibleBrand } from "@/lib/repositories/brand-repository";
 import { generateMonthlyPlan, postIdeaRepository } from "@/lib/repositories/planning-repository";
+import { processGenerationBatchSequentially } from "@/lib/repositories/generation-worker-repository";
 import { createProductionBatch, postRepository } from "@/lib/repositories/post-repository";
 import type { ContentFormat } from "@/lib/social-types";
 import type { PostIdeaRow, PostRow } from "@/lib/supabase/types";
@@ -79,6 +80,7 @@ function Planejamento() {
   const [ideas, setIdeas] = useState<PostIdeaRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [productionProgress, setProductionProgress] = useState("");
 
   const formats = useMemo(() => formatDefaults, []);
   const selectedFocus = AI_FOCUS_MODES.find((item) => item.value === focusMode) ?? AI_FOCUS_MODES[0];
@@ -110,6 +112,7 @@ function Planejamento() {
     if (!session) return;
     setLoading(true);
     setError("");
+    setProductionProgress("");
     try {
       const resolvedBrandId = await resolveBrandId();
       const result = await generateMonthlyPlan(session.access_token, {
@@ -164,6 +167,7 @@ function Planejamento() {
     if (!session) return;
     setLoading(true);
     setError("");
+    setProductionProgress("");
     try {
       await runSequential(activeIdeas, (idea) => updateIdea(idea.id, { status: "tema_aprovado" }));
       toast.success("Todos os temas ativos foram aprovados.");
@@ -182,6 +186,7 @@ function Planejamento() {
     }
     setLoading(true);
     setError("");
+    setProductionProgress("Preparando posts e criando fila segura...");
     try {
       const batchId = crypto.randomUUID();
       const rows: Partial<PostRow>[] = approved.map((idea) => ({
@@ -206,12 +211,21 @@ function Planejamento() {
       }));
       const posts = await postRepository.upsert(session.access_token, rows, "source_idea_id");
       await runSequential(posts, (post) => post.source_idea_id ? postIdeaRepository.update(session.access_token, post.source_idea_id, { converted_post_id: post.id } as Partial<PostIdeaRow>) : Promise.resolve());
-      await createProductionBatch(session.access_token, {
+      const queue = await createProductionBatch(session.access_token, {
         brandId: await resolveBrandId(),
         postIds: posts.map((post) => post.id),
         instruction: `Produção controlada com modo foco ${selectedFocus.label}. Usar visual claro/lite e Cérebro IA completo.`,
       });
-      toast.success(`${posts.length} posts enviados para fila de produção controlada.`);
+      const queued = Number(queue.queued ?? posts.length);
+      setProductionProgress(`Fila criada: ${queued} tarefas. Processando uma por vez...`);
+      await processGenerationBatchSequentially(session.access_token, {
+        batchId: queue.batchId ?? batchId,
+        maxSteps: Math.max(queued + 5, posts.length * 10),
+        onStep: ({ index, result }) => {
+          setProductionProgress(result.processed === 0 ? "Fila finalizada." : `Processando fila segura: tarefa ${index}/${queued}`);
+        },
+      });
+      toast.success(`${posts.length} posts enviados e processados em fila segura.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao enviar aprovados para produção.");
     } finally {
@@ -236,7 +250,7 @@ function Planejamento() {
           </div>
         }
       />
-      {loading ? <LoadingState label="Executando planejamento com IA, modo foco e Cérebro MYINC..." /> : null}
+      {loading ? <LoadingState label={productionProgress || "Executando planejamento com IA, modo foco e Cérebro MYINC..."} /> : null}
       {error ? <ErrorState message={error} /> : null}
       <div className="grid gap-3 md:grid-cols-5">
         {steps.map((label, index) => (
@@ -253,7 +267,7 @@ function Planejamento() {
           <Input type="number" value={month} onChange={(e) => setMonth(Number(e.target.value))} placeholder="Mês" />
           <Input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} placeholder="Ano" />
           <div className="md:col-span-2 rounded-2xl border border-border bg-card p-4">
-            <p className="text-sm font-bold">Modo foco do mês</p>
+            <p className="text-sm font-bold">Modo foco da IA</p>
             <p className="mt-1 text-sm text-muted-foreground">{selectedFocus.description}</p>
             <select value={focusMode} onChange={(e) => setFocusMode(e.target.value as AiFocusMode)} className="mt-3 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
               {AI_FOCUS_MODES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
@@ -270,7 +284,7 @@ function Planejamento() {
       {step === 2 && <Card className="rounded-3xl shadow-soft"><CardHeader><CardTitle>Pilares editoriais e tom MYINC</CardTitle></CardHeader><CardContent className="grid gap-4"><Textarea className="min-h-28" value={pillars} onChange={(e) => setPillars(e.target.value)} /><Textarea className="min-h-28" value={tone} onChange={(e) => setTone(e.target.value)} /></CardContent></Card>}
       {step === 3 && <Card className="rounded-3xl shadow-soft"><CardHeader><CardTitle>Datas, restrições e regra visual</CardTitle></CardHeader><CardContent className="grid gap-4"><Input value={campaign} onChange={(e) => setCampaign(e.target.value)} /><Textarea className="min-h-28" value={importantDates} onChange={(e) => setImportantDates(e.target.value)} /><Textarea className="min-h-28" value={restrictions} onChange={(e) => setRestrictions(e.target.value)} /><div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm text-muted-foreground"><strong className="text-foreground">Regra fixa:</strong> {MYINC_LIGHT_PROFILE_RULE}</div></CardContent></Card>}
 
-      {step === 4 && <div className="space-y-5"><div className="rounded-3xl border border-border bg-sidebar p-6 text-sidebar-foreground shadow-elevated"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-sidebar-primary">Produção em massa</p><h2 className="mt-2 text-2xl font-bold">{ideas.length || 0} ideias geradas · {approved.length} aprovadas · {rejected.length} reprovadas</h2><p className="mt-2 text-sm text-sidebar-foreground/65">Modo foco: {selectedFocus.label}. Aprove, edite e envie para o Estúdio.</p></div><div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={!activeIdeas.length || loading} onClick={approveAll}><CheckCheck className="h-4 w-4" /> Aprovar todos</Button><Button className="bg-gradient-primary text-primary-foreground" disabled={!approved.length || loading} onClick={sendApprovedToProduction}><Rocket className="h-4 w-4" /> Produzir aprovados</Button></div></div></div><Tabs defaultValue="ativas"><TabsList className="flex h-auto flex-wrap justify-start rounded-2xl bg-muted p-1"><TabsTrigger value="ativas">Ativas</TabsTrigger><TabsTrigger value="arquivadas">Arquivadas ({archived.length})</TabsTrigger></TabsList><TabsContent value="ativas" className="grid gap-4">{activeIdeas.length ? activeIdeas.map((idea, index) => <IdeaCard key={idea.id} idea={idea} index={index} onSave={saveIdeaField} onStatus={(status) => updateIdea(idea.id, { status })} />) : <EmptyState title="Nenhuma ideia ativa" description="Gere um planejamento para revisar temas." />}</TabsContent><TabsContent value="arquivadas" className="grid gap-4">{archived.map((idea, index) => <IdeaCard key={idea.id} idea={idea} index={index} onSave={saveIdeaField} onStatus={(status) => updateIdea(idea.id, { status, archived_at: status === "arquivado" ? new Date().toISOString() : null })} />)}</TabsContent></Tabs></div>}
+      {step === 4 && <div className="space-y-5"><div className="rounded-3xl border border-border bg-sidebar p-6 text-sidebar-foreground shadow-elevated"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-sidebar-primary">Produção em massa</p><h2 className="mt-2 text-2xl font-bold">{ideas.length || 0} ideias geradas · {approved.length} aprovadas · {rejected.length} reprovadas</h2><p className="mt-2 text-sm text-sidebar-foreground/65">Modo foco: {selectedFocus.label}. Aprove, edite e envie para o Estúdio.</p>{productionProgress ? <p className="mt-2 text-sm font-semibold text-sidebar-primary">{productionProgress}</p> : null}</div><div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={!activeIdeas.length || loading} onClick={approveAll}><CheckCheck className="h-4 w-4" /> Aprovar todos</Button><Button className="bg-gradient-primary text-primary-foreground" disabled={!approved.length || loading} onClick={sendApprovedToProduction}><Rocket className="h-4 w-4" /> Produzir aprovados</Button></div></div></div><Tabs defaultValue="ativas"><TabsList className="flex h-auto flex-wrap justify-start rounded-2xl bg-muted p-1"><TabsTrigger value="ativas">Ativas</TabsTrigger><TabsTrigger value="arquivadas">Arquivadas ({archived.length})</TabsTrigger></TabsList><TabsContent value="ativas" className="grid gap-4">{activeIdeas.length ? activeIdeas.map((idea, index) => <IdeaCard key={idea.id} idea={idea} index={index} onSave={saveIdeaField} onStatus={(status) => updateIdea(idea.id, { status })} />) : <EmptyState title="Nenhuma ideia ativa" description="Gere um planejamento para revisar temas." />}</TabsContent><TabsContent value="arquivadas" className="grid gap-4">{archived.map((idea, index) => <IdeaCard key={idea.id} idea={idea} index={index} onSave={saveIdeaField} onStatus={(status) => updateIdea(idea.id, { status, archived_at: status === "arquivado" ? new Date().toISOString() : null })} />)}</TabsContent></Tabs></div>}
     </div>
   );
 }
