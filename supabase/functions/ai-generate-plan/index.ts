@@ -16,7 +16,7 @@ function isProduction(runtime: Record<string, string | null>) {
   return ["production", "prod"].includes(String(cfg(runtime, "APP_ENV", Deno.env.get("APP_ENV") ?? "")).toLowerCase());
 }
 
-function safeJson(value: unknown, max = 5500) {
+function safeJson(value: unknown, max = 4000) {
   const text = JSON.stringify(value ?? null);
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
@@ -34,29 +34,36 @@ function parseJsonObject(text: string) {
 
 function fallbackIdeas(payload: Record<string, unknown>, count: number) {
   const formats = Array.isArray(payload.formats) ? Object.keys(payload.formats as Record<string, unknown>) : ["Feed 1080x1350"];
-  return Array.from({ length: count }, (_, index) => ({
-    title: `Conteudo premium MYINC ${index + 1}`,
-    headline: `Um novo olhar para ${payload.region ?? "a sua regiao"}`,
-    short_text: "Ideia inicial gerada em modo mock controlado para desenvolvimento.",
-    cta: "Fale com a equipe MYINC",
-    visual_idea: "Arquitetura premium, luz natural, composicao limpa e paleta clara MYINC.",
-    initial_prompt: "Imagem premium de empreendimento imobiliario de alto padrao, fundo claro, sem texto e sem logo.",
-    theme: String(payload.campaign ?? "Planejamento editorial"),
-    objective: String(payload.monthlyObjective ?? "Gerar autoridade e oportunidades comerciais"),
-    channel: Array.isArray(payload.channels) ? String(payload.channels[index % payload.channels.length]) : "Instagram",
-    format: String(formats[index % formats.length] ?? "Feed 1080x1350"),
-    priority: index + 1,
-    predicted_score: 82,
-    status: "rascunho",
-  }));
+  const pillars = String(payload.pillars ?? "autoridade, prova social, bastidores, produto, relacionamento");
+  const region = String(payload.region ?? "Londrina e região");
+  const campaign = String(payload.campaign ?? "Planejamento editorial MYINC");
+  return Array.from({ length: count }, (_, index) => {
+    const format = String(formats[index % formats.length] ?? "Feed 1080x1350");
+    const pillar = pillars.split(",")[index % Math.max(1, pillars.split(",").length)]?.trim() || "autoridade";
+    return {
+      title: `${campaign} — ${pillar} ${index + 1}`,
+      headline: `Um olhar premium sobre ${pillar} em ${region}`,
+      short_text: `Conteúdo ${index + 1} para reforçar ${pillar}, posicionamento premium e relacionamento com compradores e investidores.` ,
+      cta: "Fale com a equipe MYINC",
+      visual_idea: "Arquitetura premium, luz natural, paleta clara, composição limpa e sensação de alto padrão.",
+      initial_prompt: "Imagem premium de empreendimento imobiliário de alto padrão, fundo claro/off-white, luz natural, sem texto, sem logo, sem letras e sem números.",
+      theme: `${pillar} MYINC`,
+      objective: String(payload.monthlyObjective ?? "Gerar autoridade e oportunidades comerciais"),
+      channel: "Instagram",
+      format,
+      priority: index + 1,
+      predicted_score: 82,
+      status: "rascunho",
+    };
+  });
 }
 
 async function loadPlanningContext(supabase: ReturnType<typeof serviceClient>, brandId: string) {
   const [profile, rules, prompts, references] = await Promise.all([
     supabase.from("brand_profiles").select("primary_audience,benefits,differentiators,tone,communication_style,preferred_words,forbidden_words,primary_palette,secondary_palette,preferred_visual_style,composition_rules,image_text_rules,mantra").eq("brand_id", brandId).maybeSingle(),
-    supabase.from("ai_brain_rules").select("category,content,priority").eq("brand_id", brandId).eq("active", true).is("archived_at", null).order("priority").limit(8),
-    supabase.from("ai_prompt_templates").select("name,content").eq("brand_id", brandId).eq("active", true).is("archived_at", null).limit(5),
-    supabase.from("library_items").select("name,notes,ai_usage_rule,url,status").eq("brand_id", brandId).is("archived_at", null).limit(6),
+    supabase.from("ai_brain_rules").select("category,content,priority").eq("brand_id", brandId).eq("active", true).is("archived_at", null).order("priority").limit(6),
+    supabase.from("ai_prompt_templates").select("name,content").eq("brand_id", brandId).eq("active", true).is("archived_at", null).limit(4),
+    supabase.from("library_items").select("name,notes,ai_usage_rule,url,status").eq("brand_id", brandId).is("archived_at", null).limit(4),
   ]);
   return {
     profile: profile.data ?? null,
@@ -64,6 +71,18 @@ async function loadPlanningContext(supabase: ReturnType<typeof serviceClient>, b
     prompts: prompts.data ?? [],
     references: references.data ?? [],
   };
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} excedeu ${Math.round(ms / 1000)}s. Usando fallback seguro.`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 async function generateOpenAiPlan(
@@ -77,36 +96,46 @@ async function generateOpenAiPlan(
   const context = await loadPlanningContext(supabase, brandId);
   const prompt = `Crie planejamento editorial premium para MYINC.
 Quantidade: ${totalPosts} ideias. Nunca gere mais que ${totalPosts}.
-Dados do briefing: ${safeJson(payload, 2800)}
-Contexto da marca: ${safeJson(context, 3600)}
-Regras obrigatorias:
-- Portugues do Brasil.
+Briefing: ${safeJson(payload, 1800)}
+Contexto da marca: ${safeJson(context, 2200)}
+Regras:
+- Português do Brasil.
 - Incorporadora/construtora premium.
-- Ideias especificas, uteis, comerciais e humanas, sem conteudo generico.
-- Perfil visual claro/lite: branco, off-white, areia, luz natural, muito respiro, sofisticacao limpa.
-- Sem promessa absoluta de valorizacao.
-- Visual_prompt e initial_prompt sempre SEM TEXTO, SEM LOGO, SEM LETRAS, SEM NUMEROS.
+- Ideias específicas, úteis, comerciais e humanas.
+- Visual claro/lite: branco, off-white, areia, luz natural, muito respiro.
+- Sem promessa absoluta de valorização.
+- initial_prompt sempre SEM TEXTO, SEM LOGO, SEM LETRAS, SEM NÚMEROS.
 - Variar formatos conforme briefing.
-Retorne somente JSON valido:
+Retorne JSON válido:
 {"strategy":"","ideas":[{"title":"","headline":"","short_text":"","cta":"","visual_idea":"","initial_prompt":"","theme":"","objective":"","channel":"","format":"","suggested_at":"","priority":1,"predicted_score":90}]}`;
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${openAiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: "Voce e estrategista senior de social media imobiliario premium. Responda apenas JSON valido." },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(errorMessage(data?.error?.message ?? data?.error ?? data));
-  const parsed = parseJsonObject(data.choices?.[0]?.message?.content ?? "{}");
-  const ideas = Array.isArray(parsed.ideas) ? parsed.ideas.slice(0, totalPosts) : [];
-  return { strategy: String(parsed.strategy ?? ""), ideas };
+  const controller = new AbortController();
+  const timeoutMs = Number(Deno.env.get("OPENAI_PLANNING_TIMEOUT_MS") ?? "85000");
+  const timer = setTimeout(() => controller.abort("planning-timeout"), timeoutMs);
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${openAiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "Você é estrategista senior de social media imobiliário premium. Responda apenas JSON válido, curto e objetivo." },
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(errorMessage(data?.error?.message ?? data?.error ?? data));
+    const parsed = parseJsonObject(data.choices?.[0]?.message?.content ?? "{}");
+    const ideas = Array.isArray(parsed.ideas) ? parsed.ideas.slice(0, totalPosts) : [];
+    if (!ideas.length) throw new Error("OpenAI não retornou ideias válidas.");
+    return { strategy: String(parsed.strategy ?? ""), ideas, source: "openai" };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 serve(async (req) => {
@@ -116,12 +145,12 @@ serve(async (req) => {
     await requireActiveUser(req, supabase);
     const payload = await req.json();
     const brandId = String(payload.brandId ?? "");
-    if (!brandId) throw new Error("brandId e obrigatorio.");
+    if (!brandId) throw new Error("brandId é obrigatório.");
 
     if (payload.mode === "regenerate_idea" && payload.ideaId) {
       const { data: idea, error } = await supabase
         .from("post_ideas")
-        .update({ headline: payload.instruction ?? "Ideia refinada pelo Cerebro IA", updated_at: new Date().toISOString() })
+        .update({ headline: payload.instruction ?? "Ideia refinada pelo Cérebro IA", updated_at: new Date().toISOString() })
         .eq("id", payload.ideaId)
         .select()
         .single();
@@ -131,17 +160,37 @@ serve(async (req) => {
 
     const runtime = await loadRuntimeConfig(supabase);
     const requested = Number(payload.totalPosts ?? 10);
-    const totalPosts = Math.max(1, Math.min(10, Number.isFinite(requested) ? requested : 10));
+    const maxPerCall = Number(cfg(runtime, "PLANNING_MAX_PER_CALL", Deno.env.get("PLANNING_MAX_PER_CALL") ?? "6"));
+    const totalPosts = Math.max(1, Math.min(maxPerCall, Number.isFinite(requested) ? requested : maxPerCall));
     const mockEnabled = cfg(runtime, "MOCK_AI_PROVIDER", Deno.env.get("MOCK_AI_PROVIDER") ?? "") === "true";
-    let planPayload: Record<string, unknown>;
+    let planPayload: Record<string, unknown> & { source?: string };
 
     if (mockEnabled) {
-      if (isProduction(runtime)) throw new Error("MOCK_AI_PROVIDER proibido em producao. Configure OPENAI_API_KEY.");
-      planPayload = { strategy: "Mock somente para desenvolvimento.", ideas: fallbackIdeas(payload, totalPosts) };
+      if (isProduction(runtime)) throw new Error("MOCK_AI_PROVIDER proibido em produção. Configure OPENAI_API_KEY.");
+      planPayload = { strategy: "Mock somente para desenvolvimento.", ideas: fallbackIdeas(payload, totalPosts), source: "mock" };
     } else {
       const openAiKey = requiredCfg(runtime, "OPENAI_API_KEY", "Planejamento mensal");
-      const model = cfg(runtime, "OPENAI_TEXT_MODEL", "gpt-5.2");
-      planPayload = await generateOpenAiPlan(supabase, openAiKey, model, payload, totalPosts, brandId);
+      const model = cfg(runtime, "OPENAI_TEXT_MODEL", Deno.env.get("OPENAI_TEXT_MODEL") ?? "gpt-4.1-mini");
+      try {
+        planPayload = await withTimeout(
+          generateOpenAiPlan(supabase, openAiKey, model, payload, totalPosts, brandId),
+          Number(Deno.env.get("PLANNING_FUNCTION_TIMEOUT_MS") ?? "95000"),
+          "Planejamento IA",
+        );
+      } catch (aiError) {
+        planPayload = {
+          strategy: `Fallback compute-safe acionado: ${errorMessage(aiError)}`,
+          ideas: fallbackIdeas(payload, totalPosts),
+          source: "fallback_compute_safe",
+        };
+        await systemLog(supabase, {
+          brand_id: brandId,
+          module: "planning",
+          status: "alerta",
+          friendly_message: "Planejamento usou fallback para evitar timeout.",
+          technical_detail: errorMessage(aiError),
+        });
+      }
     }
 
     const { data: monthlyPlan, error: planError } = await supabase
@@ -155,8 +204,8 @@ serve(async (req) => {
         objective: payload.monthlyObjective ?? null,
         strategy: String(planPayload.strategy ?? ""),
         total_posts: totalPosts,
-        status: requested > totalPosts ? "gerado_parcial_compute_safe" : "gerado",
-        prompt_used: JSON.stringify({ ...payload, requestedTotalPosts: requested, generatedThisCall: totalPosts }),
+        status: requested > totalPosts ? "gerado_parcial_compute_safe" : planPayload.source === "fallback_compute_safe" ? "gerado_fallback_compute_safe" : "gerado",
+        prompt_used: JSON.stringify({ ...payload, requestedTotalPosts: requested, generatedThisCall: totalPosts, source: planPayload.source ?? "openai" }),
         ai_response_json: planPayload,
       })
       .select()
@@ -164,7 +213,7 @@ serve(async (req) => {
     if (planError) throw planError;
 
     const ideasInput = Array.isArray(planPayload.ideas) ? planPayload.ideas.slice(0, totalPosts) : [];
-    if (!ideasInput.length) throw new Error("Planejamento nao retornou ideias validas.");
+    if (!ideasInput.length) throw new Error("Planejamento não retornou ideias válidas.");
 
     const rows = ideasInput.map((idea: Record<string, unknown>, index) => ({
       brand_id: brandId,
@@ -194,10 +243,18 @@ serve(async (req) => {
       module: "planning",
       status: "sucesso",
       friendly_message: "Planejamento compute-safe gerado e salvo.",
-      technical_detail: `requested=${requested}; generated=${ideas?.length ?? 0}; max_per_call=10`,
+      technical_detail: `requested=${requested}; generated=${ideas?.length ?? 0}; max_per_call=${maxPerCall}; source=${planPayload.source ?? "openai"}`,
     });
 
-    return json(req, { ok: true, monthlyPlan, ideas: ideas ?? [], maxPerCall: 10, requestedTotalPosts: requested });
+    return json(req, {
+      ok: true,
+      monthlyPlan,
+      ideas: ideas ?? [],
+      maxPerCall,
+      requestedTotalPosts: requested,
+      source: planPayload.source ?? "openai",
+      message: requested > totalPosts ? `Geradas ${totalPosts} ideias nesta chamada para evitar timeout. Rode novamente para completar o mês.` : "Planejamento gerado.",
+    });
   } catch (error) {
     await systemLog(supabase, { module: "planning", status: "erro", friendly_message: "Falha ao gerar planejamento.", technical_detail: errorMessage(error) });
     return errorJson(req, error);
