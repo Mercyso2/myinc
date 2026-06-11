@@ -19,14 +19,30 @@ export function processNextGenerationJob(token: string, payload: { batchId?: str
   );
 }
 
+export function useExternalAiWorker() {
+  const flag = String(import.meta.env.VITE_MYINC_EXTERNAL_AI_WORKER ?? "true").toLowerCase();
+  return flag !== "false";
+}
+
 export async function processGenerationBatchSequentially(
   token: string,
   payload: {
     batchId?: string;
     maxSteps?: number;
     onStep?: (step: { index: number; result: ProcessNextGenerationJobResult }) => void;
+    forceEdge?: boolean;
   } = {},
 ) {
+  if (useExternalAiWorker() && !payload.forceEdge) {
+    const queuedResult: ProcessNextGenerationJobResult = {
+      ok: true,
+      processed: 0,
+      message: "Fila criada. O AI Worker externo processará as tarefas fora do Supabase Edge.",
+    };
+    payload.onStep?.({ index: 0, result: queuedResult });
+    return [queuedResult];
+  }
+
   const maxSteps = Math.max(1, Math.min(120, Number(payload.maxSteps ?? 60)));
   const results: ProcessNextGenerationJobResult[] = [];
 
