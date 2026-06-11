@@ -68,22 +68,29 @@ export function generatePostContent(token: string, postId: string, instruction?:
   });
 }
 
-export function generatePostImage(token: string, postId: string, jobType?: "image" | "carousel" | "video") {
-  const fn = jobType === "carousel" ? "generate-image" : "generate-image-fast-safe";
-  return callEdgeFunction<{
-    ok: true;
-    queued?: boolean;
-    status?: string;
-    jobId?: string;
-    jobType?: string;
-    post: PostRow;
-    mediaUrl?: string | null;
-    carouselMediaUrls?: string[];
-    message?: string;
-  }>(fn, token, {
-    postId,
-    jobType,
+export async function generatePostImage(token: string, postId: string, jobType?: "image" | "carousel" | "video") {
+  const post = await postRepository.get(token, postId);
+  if (!post?.brand_id) throw new Error("Post sem brand_id para criar fila de mídia.");
+  const response = await createProductionBatch(token, {
+    brandId: post.brand_id,
+    postIds: [postId],
+    instruction:
+      jobType === "video"
+        ? "Criar job de vídeo/Reels no worker externo Vercel."
+        : jobType === "carousel"
+          ? "Criar páginas de carrossel no worker externo Vercel."
+          : "Criar imagem no worker externo Vercel.",
   });
+  return {
+    ok: true as const,
+    queued: true,
+    status: "queued",
+    jobType: jobType ?? "image",
+    post,
+    message: response.queued
+      ? `Mídia enviada para fila externa Vercel (${response.queued} job(s)). Clique em Atualizar após o worker processar.`
+      : "Mídia enviada para fila externa Vercel.",
+  };
 }
 
 export function getGenerationStatus(token: string, payload: { jobId?: string; postId?: string }) {
