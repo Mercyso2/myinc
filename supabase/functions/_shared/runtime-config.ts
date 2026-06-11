@@ -27,6 +27,14 @@ export const RUNTIME_KEYS = [
   "PUBLIC_MEDIA_BASE_URL",
   "ALLOW_LOCAL_PUBLISH_SIMULATION",
   "DEFAULT_TIMEZONE",
+  "AI_STRICT_MODE",
+  "QUEUE_PROCESS_ONE_AT_A_TIME",
+  "QUEUE_MAX_TEXT_JOBS_PER_RUN",
+  "QUEUE_MAX_IMAGE_JOBS_PER_RUN",
+  "QUEUE_MAX_VIDEO_JOBS_PER_RUN",
+  "QUEUE_MAX_ATTEMPTS",
+  "QUEUE_BACKOFF_SECONDS",
+  "MYINC_LIGHT_PROFILE_MODE",
 ] as const;
 
 export type RuntimeKey = (typeof RUNTIME_KEYS)[number];
@@ -125,6 +133,13 @@ export function boolCfg(config: RuntimeConfig, key: string, fallback = false) {
   return ["1", "true", "yes", "sim", "on", "ativo", "enabled"].includes(value.toLowerCase());
 }
 
+export function numberCfg(config: RuntimeConfig, key: string, fallback: number, min?: number, max?: number) {
+  const raw = Number(cfg(config, key, String(fallback)));
+  const value = Number.isFinite(raw) ? raw : fallback;
+  const withMin = min === undefined ? value : Math.max(min, value);
+  return max === undefined ? withMin : Math.min(max, withMin);
+}
+
 export function hasCfg(config: RuntimeConfig, key: string) {
   return Boolean(cfg(config, key));
 }
@@ -146,6 +161,12 @@ export function publicRuntimeStatus(config: RuntimeConfig) {
     openaiVideoModel: cfg(config, "OPENAI_VIDEO_MODEL", "sora-2-pro"),
     mockAiProvider: cfg(config, "MOCK_AI_PROVIDER", "false"),
     mockMetaProvider: cfg(config, "MOCK_META_PROVIDER", "false"),
+    aiStrictMode: cfg(config, "AI_STRICT_MODE", "true"),
+    queueProcessOneAtATime: cfg(config, "QUEUE_PROCESS_ONE_AT_A_TIME", "true"),
+    queueMaxTextJobsPerRun: cfg(config, "QUEUE_MAX_TEXT_JOBS_PER_RUN", "1"),
+    queueMaxImageJobsPerRun: cfg(config, "QUEUE_MAX_IMAGE_JOBS_PER_RUN", "1"),
+    queueMaxVideoJobsPerRun: cfg(config, "QUEUE_MAX_VIDEO_JOBS_PER_RUN", "1"),
+    myincLightProfileMode: cfg(config, "MYINC_LIGHT_PROFILE_MODE", "true"),
     metaPageAccessToken: hasCfg(config, "META_PAGE_ACCESS_TOKEN"),
     metaPageId: hasCfg(config, "META_PAGE_ID") || hasCfg(config, "FACEBOOK_PAGE_ID"),
     metaInstagramBusinessId: hasCfg(config, "META_INSTAGRAM_BUSINESS_ID"),
