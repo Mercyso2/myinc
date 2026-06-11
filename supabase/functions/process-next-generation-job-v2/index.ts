@@ -60,7 +60,7 @@ serve(async (req) => {
           instruction: input.instruction ?? "Produzir conteudo premium MYINC.",
         });
       } else if (jobType === "image") {
-        result = await callFunction(req, "generate-image", { postId, jobType: "image" });
+        result = await callFunction(req, "generate-image-fast-safe", { postId });
       } else if (jobType === "carousel_page") {
         result = await callFunction(req, "generate-carousel-page", {
           postId,
