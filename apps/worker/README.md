@@ -1,30 +1,21 @@
-# MYINC AI Worker
+# MYINC AI Worker Externo
 
-Worker externo para processar IA pesada fora do Supabase Edge.
+Este worker tira IA pesada do Supabase Edge.
 
-Objetivo:
-- Supabase fica como Auth, banco, Storage, fila e logs.
-- Este worker processa generation_jobs em uma VPS/EasyPanel.
-- O frontend cria jobs e acompanha status.
-- A IA pesada não roda mais dentro das Edge Functions.
+## Função
 
-Fluxo:
-1. App cria posts e generation_jobs.
-2. Worker busca jobs queued.
-3. Worker executa texto, imagem, carrossel ou vídeo.
-4. Worker salva mídia no Supabase Storage.
-5. Worker atualiza posts, media_assets, post_versions e generation_jobs.
+- Lê `generation_jobs` com status `queued`.
+- Processa texto/imagem fora do Supabase Edge.
+- Salva imagem no Supabase Storage.
+- Atualiza `posts`, `media_assets`, `post_versions`, `generation_jobs` e `system_logs`.
 
-Variáveis necessárias:
-- SUPABASE_URL
-- SUPABASE_SERVICE_ROLE_KEY
-- OPENAI_API_KEY
-- MEDIA_BUCKET
-- WORKER_POLL_INTERVAL_MS
-- WORKER_MAX_PARALLEL
-- ENABLE_VIDEO_WORKER
+## Deploy no EasyPanel
 
-Deploy recomendado:
-- EasyPanel com Node 20+
-- Dockerfile deste diretório
-- Restart always
+1. Suba esta pasta `apps/worker` no repositório.
+2. Crie um app Node/Docker no EasyPanel apontando para `apps/worker`.
+3. Configure as variáveis do `.env.example`.
+4. Ative restart always.
+
+## Importante
+
+O Supabase fica apenas como banco, storage, auth, logs e fila. A IA pesada roda neste worker.

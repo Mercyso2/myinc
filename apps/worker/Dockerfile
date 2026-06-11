@@ -1,4 +1,5 @@
 FROM node:20-alpine
 WORKDIR /app
-COPY . .
+COPY package.json ./package.json
+COPY src ./src
 CMD ["node", "src/index.mjs"]
