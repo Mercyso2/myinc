@@ -76,8 +76,9 @@ test("Vercel failures fall back to the Edge processor that can read Edge secrets
     read("supabase/functions/process-next-generation-job-safe/index.ts"),
     read("src/routes/admin.tsx"),
   ]);
-  assert.match(repository, /"process-next-generation-job-safe"/);
-  assert.match(repository, /processor: "supabase-edge"/);
+  assert.match(repository, /"\/api\/edge\/process-next"/);
+  assert.match(repository, /processor: "supabase-edge-proxy"/);
+  assert.doesNotMatch(repository, /callEdgeFunction<ProcessNextGenerationJobResult>/);
   assert.match(edgeProcessor, /rpc\("claim_generation_job"/);
   assert.match(edgeProcessor, /claimQueuedFallback/);
   assert.match(admin, /OpenAI nos Secrets da Supabase Edge/);
@@ -95,4 +96,18 @@ test("admin status tests the OpenAI secret inside the Edge runtime", async () =>
   assert.match(status, /Deno\.env\.get\("OPENAI_API_KEY"\)/);
   assert.match(status, /fetch\("https:\/\/api\.openai\.com\/v1\/models"/);
   assert.match(status, /openaiConnection: edgeOpenAiConnection/);
+});
+
+test("same-origin Vercel proxy bypasses browser CORS using public Supabase config and user JWT", async () => {
+  const [proxy, repository, vercel] = await Promise.all([
+    read("api/edge/process-next.js"),
+    read("src/lib/repositories/generation-worker-repository.ts"),
+    read("vercel.json"),
+  ]);
+  assert.match(proxy, /env\("VITE_SUPABASE_URL"\)/);
+  assert.match(proxy, /env\("VITE_SUPABASE_ANON_KEY"\)/);
+  assert.match(proxy, /functions\/v1\/process-next-generation-job-safe/);
+  assert.match(proxy, /Authorization: `Bearer \$\{token\}`/);
+  assert.match(repository, /fetch\("\/api\/edge\/process-next"/);
+  assert.match(vercel, /api\/edge\/process-next\.js/);
 });

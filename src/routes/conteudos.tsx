@@ -186,8 +186,13 @@ function Conteudos() {
       });
       const processed = results.filter((result) => result.processed > 0).length;
       const failures = results.filter((result) => !result.ok);
-      const usedEdge = results.some((result) => result.processor === "supabase-edge");
-      const processorLabel = usedEdge ? "fallback Supabase Edge compute-safe" : "worker Vercel";
+      const usedEdgeProxy = results.some((result) => result.processor === "supabase-edge-proxy");
+      const usedDirectEdge = results.some((result) => result.processor === "supabase-edge");
+      const processorLabel = usedEdgeProxy
+        ? "Supabase Edge via proxy seguro"
+        : usedDirectEdge
+          ? "fallback Supabase Edge compute-safe"
+          : "worker Vercel";
       const message = !processed
         ? "Não havia job pronto na fila. Envie posts/imagens para a fila antes de processar."
         : failures.length

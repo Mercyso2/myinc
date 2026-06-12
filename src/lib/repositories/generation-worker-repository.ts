@@ -1,5 +1,3 @@
-import { callEdgeFunction } from "@/lib/supabase/client";
-
 export type ProcessNextGenerationJobResult = {
   ok: boolean;
   processed: number;
@@ -9,7 +7,7 @@ export type ProcessNextGenerationJobResult = {
   result?: unknown;
   message?: string;
   error?: string;
-  processor?: "vercel" | "supabase-edge";
+  processor?: "vercel" | "supabase-edge-proxy" | "supabase-edge";
 };
 
 export async function processNextGenerationJob(token: string, payload: { batchId?: string } = {}) {
@@ -34,22 +32,28 @@ export async function processNextGenerationJob(token: string, payload: { batchId
   }
 
   try {
-    const edgeResult = await callEdgeFunction<ProcessNextGenerationJobResult>(
-      "process-next-generation-job-safe",
-      token,
-      payload,
-    );
-    return {
-      ...edgeResult,
-      processor: "supabase-edge" as const,
-      message: edgeResult.message ?? "Processado pelo fallback compute-safe da Supabase Edge.",
-    };
-  } catch (edgeError) {
-    const edgeMessage = edgeError instanceof Error ? edgeError.message : String(edgeError);
-    throw new Error(
-      `Worker Vercel indisponível: ${lastError} | Fallback Supabase Edge falhou: ${edgeMessage}`,
-    );
+    const proxyResponse = await fetch("/api/edge/process-next", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const proxyResult = (await proxyResponse
+      .json()
+      .catch(() => ({}))) as ProcessNextGenerationJobResult;
+    if (proxyResponse.ok) {
+      return {
+        ...proxyResult,
+        processor: "supabase-edge-proxy" as const,
+        message:
+          proxyResult.message ?? "Processado pela Supabase Edge via proxy seguro same-origin.",
+      };
+    }
+    lastError = `${lastError} | Proxy Edge: ${proxyResult.error ?? `HTTP ${proxyResponse.status}`}`;
+  } catch (proxyError) {
+    lastError = `${lastError} | Proxy Edge: ${proxyError instanceof Error ? proxyError.message : String(proxyError)}`;
   }
+
+  throw new Error(`Nenhum processador respondeu. ${lastError}`);
 }
 
 export function useExternalAiWorker() {

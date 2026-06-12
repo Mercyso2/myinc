@@ -94,3 +94,7 @@ supabase functions deploy admin-status
 ```
 
 O `admin-status` atualizado também testa `OPENAI_API_KEY` diretamente dentro do runtime da Supabase Edge via `GET /v1/models`, distinguindo “Secret ausente” de “função de diagnóstico antiga ainda publicada”.
+
+## Proxy same-origin para eliminar CORS do processamento
+
+O frontend não chama mais `process-next-generation-job-safe` diretamente pelo navegador. Quando o worker principal não está configurado, ele chama `POST /api/edge/process-next` no próprio domínio da aplicação. Essa função Vercel usa `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` e encaminha o JWT do usuário para a Edge Function. Como a chamada Supabase ocorre server-side, o navegador não pode bloqueá-la por CORS e nenhuma service role/chave OpenAI é exposta.

@@ -14,6 +14,9 @@
     },
     "api/debug/health.js": {
       "maxDuration": 10
+    },
+    "api/edge/process-next.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
