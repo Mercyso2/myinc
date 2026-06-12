@@ -69,3 +69,16 @@ test("technical diagnostics mask secrets and require an active admin", async () 
   assert.doesNotMatch(health, /openAiKey,\s*$/m);
   assert.match(saveSettings, /profile\.role !== "admin"/);
 });
+
+test("Vercel failures fall back to the Edge processor that can read Edge secrets", async () => {
+  const [repository, edgeProcessor, admin] = await Promise.all([
+    read("src/lib/repositories/generation-worker-repository.ts"),
+    read("supabase/functions/process-next-generation-job-safe/index.ts"),
+    read("src/routes/admin.tsx"),
+  ]);
+  assert.match(repository, /"process-next-generation-job-safe"/);
+  assert.match(repository, /processor: "supabase-edge"/);
+  assert.match(edgeProcessor, /rpc\("claim_generation_job"/);
+  assert.match(edgeProcessor, /claimQueuedFallback/);
+  assert.match(admin, /OpenAI nos Secrets da Supabase Edge/);
+});

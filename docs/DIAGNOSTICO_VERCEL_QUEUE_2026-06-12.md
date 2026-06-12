@@ -69,3 +69,15 @@ Para diagnóstico conectado, exporte `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY
 - Imagem e carrossel dependem de uma chave/modelo de imagem válido e de permissão no Storage. Cada slide do carrossel é um job e um asset real.
 - Vídeo só gera MP4 real quando `ENABLE_OPENAI_VIDEO=true` e o provider/modelo configurado suporta a API usada. Caso contrário, o job falha/reagenda com motivo técnico; não é marcado como concluído falsamente.
 - Publicação Meta continua server-side pela Edge Function existente e depende de token, IDs, permissões do app Meta, mídia HTTPS pública e disponibilidade/processamento dos containers da Graph API.
+
+
+## Secrets da Supabase Edge versus variáveis da Vercel
+
+Os Secrets configurados no painel **Supabase Edge Functions** são acessíveis somente às Edge Functions. Eles não aparecem automaticamente em `process.env` das funções Node.js da Vercel. Quando `OPENAI_API_KEY` existe apenas na Edge, o frontend tenta o worker Vercel e muda automaticamente para `process-next-generation-job-safe`, que processa um job por chamada usando os Secrets da Edge. A tela técnica mostra separadamente o estado da Edge e o estado opcional do worker Vercel, sem acusar que a chave da Edge está ausente.
+
+Para ativar esse fallback, publicar:
+
+```bash
+supabase functions deploy process-next-generation-job-safe
+supabase functions deploy admin-status
+```

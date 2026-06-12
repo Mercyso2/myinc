@@ -186,11 +186,13 @@ function Conteudos() {
       });
       const processed = results.filter((result) => result.processed > 0).length;
       const failures = results.filter((result) => !result.ok);
+      const usedEdge = results.some((result) => result.processor === "supabase-edge");
+      const processorLabel = usedEdge ? "fallback Supabase Edge compute-safe" : "worker Vercel";
       const message = !processed
         ? "Não havia job pronto na fila. Envie posts/imagens para a fila antes de processar."
         : failures.length
-          ? `${processed} job(s) processado(s), com ${failures.length} falha(s). Veja a aba Erros/logs para o motivo técnico.`
-          : `${processed} job(s) processado(s) pela Vercel.`;
+          ? `${processed} job(s) processado(s) por ${processorLabel}, com ${failures.length} falha(s). Veja a aba Erros/logs para o motivo técnico.`
+          : `${processed} job(s) processado(s) por ${processorLabel}.`;
 
       if (failures.length) toast.warning(message);
       else toast.success(message);

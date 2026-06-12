@@ -172,6 +172,7 @@ serve(async (req) => {
         improvePost: true,
         metaTestConnection: true,
         processProductionQueue: true,
+        processNextGenerationJobSafe: true,
         processPublishQueue: true,
         publishMeta: true,
         renderTemplate: true,

@@ -9,6 +9,7 @@ export type ProcessNextGenerationJobResult = {
   result?: unknown;
   message?: string;
   error?: string;
+  processor?: "vercel" | "supabase-edge";
 };
 
 export async function processNextGenerationJob(token: string, payload: { batchId?: string } = {}) {
@@ -23,7 +24,7 @@ export async function processNextGenerationJob(token: string, payload: { batchId
         body: JSON.stringify(payload),
       });
       const data = (await response.json().catch(() => ({}))) as ProcessNextGenerationJobResult;
-      if (response.ok) return data;
+      if (response.ok) return { ...data, processor: "vercel" as const };
 
       lastError = data.error ?? `${route} respondeu HTTP ${response.status}.`;
       if (response.status < 500 && response.status !== 404 && response.status !== 405) break;
@@ -32,7 +33,23 @@ export async function processNextGenerationJob(token: string, payload: { batchId
     }
   }
 
-  throw new Error(lastError);
+  try {
+    const edgeResult = await callEdgeFunction<ProcessNextGenerationJobResult>(
+      "process-next-generation-job-safe",
+      token,
+      payload,
+    );
+    return {
+      ...edgeResult,
+      processor: "supabase-edge" as const,
+      message: edgeResult.message ?? "Processado pelo fallback compute-safe da Supabase Edge.",
+    };
+  } catch (edgeError) {
+    const edgeMessage = edgeError instanceof Error ? edgeError.message : String(edgeError);
+    throw new Error(
+      `Worker Vercel indisponível: ${lastError} | Fallback Supabase Edge falhou: ${edgeMessage}`,
+    );
+  }
 }
 
 export function useExternalAiWorker() {

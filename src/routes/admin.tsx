@@ -35,7 +35,7 @@ type WorkerHealth = {
   ok: boolean;
   error?: string;
   runtime?: string;
-  worker?: { deployed?: boolean; oneJobPerRequest?: boolean };
+  worker?: { deployed?: boolean; configured?: boolean; oneJobPerRequest?: boolean };
   queue?: {
     reachable?: boolean;
     lastJob?: { status?: string; error_message?: string | null } | null;
@@ -63,6 +63,13 @@ type AdminStatus = {
   database?: { connected: boolean; tables: Record<string, boolean> };
   storage?: Record<string, boolean>;
   edgeFunctions?: Record<string, boolean>;
+  imageDiagnostic?: {
+    openaiApiKey?: boolean;
+    imageModel?: boolean;
+    imageModelName?: string;
+    storage?: boolean;
+    lastTechnicalError?: string | null;
+  };
 };
 
 function mapLog(row: SystemLogRow): SystemLog {
@@ -141,7 +148,7 @@ function Admin() {
         });
       await loadLogs();
       if (workerResult.status === "rejected" || !workerResult.value.ok) {
-        toast.warning("Supabase respondeu, mas o worker Vercel/OpenAI precisa de atenção.");
+        toast.warning("Worker Vercel sem configuração própria; fallback Supabase Edge disponível.");
       } else toast.success("Supabase, worker Vercel e OpenAI testados com sucesso.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao testar conexões reais.");
@@ -199,14 +206,33 @@ function Admin() {
           <div className="mb-5 rounded-3xl border border-border bg-card p-5 shadow-soft">
             <h3 className="font-bold">Diagnóstico seguro do worker Vercel</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              A chave nunca é exibida. O identificador mascarado abaixo confirma qual credencial o
-              backend encontrou e o teste chama a OpenAI diretamente no servidor, sem gerar custo de
-              imagem.
+              Os Secrets da Supabase Edge e as variáveis da Vercel são cofres separados. A chave
+              nunca é exibida. Se o worker Vercel não tiver configuração própria, o app usa
+              automaticamente o fallback compute-safe da Supabase Edge.
             </p>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <ConnectionStatus
-                label="Rota Node.js da Vercel"
-                status={workerHealth?.worker?.deployed ? "online" : "offline"}
+                label="OpenAI nos Secrets da Supabase Edge"
+                status={status?.imageDiagnostic?.openaiApiKey ? "online" : "offline"}
+                detail={
+                  status?.imageDiagnostic?.openaiApiKey
+                    ? `Configurada na Edge • modelo: ${status.imageDiagnostic.imageModelName ?? "não informado"}`
+                    : "OPENAI_API_KEY não encontrada pela Edge Function admin-status."
+                }
+              />
+              <ConnectionStatus
+                label="Fallback Supabase Edge compute-safe"
+                status={
+                  status?.edgeFunctions?.processNextGenerationJobSafe &&
+                  status?.imageDiagnostic?.openaiApiKey
+                    ? "online"
+                    : "offline"
+                }
+                detail="Usado automaticamente quando o worker Vercel não possui acesso ao cofre da Edge."
+              />
+              <ConnectionStatus
+                label="Rota Node.js da Vercel (opcional)"
+                status={workerHealth?.worker?.configured ? "online" : "offline"}
                 detail={
                   workerHealth?.error ?? `Runtime: ${workerHealth?.runtime ?? "não respondeu"}`
                 }
@@ -220,12 +246,12 @@ function Admin() {
                 }
               />
               <ConnectionStatus
-                label="Chave OpenAI server-side"
+                label="Chave OpenAI no worker Vercel (opcional)"
                 status={workerHealth?.credentials?.openai?.configured ? "online" : "offline"}
                 detail={`${workerHealth?.credentials?.openai?.masked ?? "não encontrada"} • origem: ${workerHealth?.credentials?.openai?.source ?? "desconhecida"}`}
               />
               <ConnectionStatus
-                label="Conexão real OpenAI"
+                label="Conexão OpenAI via Vercel (opcional)"
                 status={workerHealth?.credentials?.openai?.connected ? "online" : "offline"}
                 detail={
                   workerHealth?.credentials?.openai?.error ??
@@ -233,14 +259,14 @@ function Admin() {
                 }
               />
               <ConnectionStatus
-                label="Modelo de imagem disponível"
+                label="Modelo disponível via Vercel (opcional)"
                 status={
                   workerHealth?.credentials?.openai?.imageModelAvailable ? "online" : "offline"
                 }
                 detail={`Modelo configurado: ${workerHealth?.credentials?.openai?.imageModel ?? "não informado"}`}
               />
             </div>
-            {workerHealth?.error ? (
+            {workerHealth?.worker?.configured && workerHealth?.error ? (
               <div className="mt-4">
                 <ErrorState message={workerHealth.error} />
               </div>

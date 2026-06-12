@@ -80,13 +80,25 @@ async function testOpenAi(apiKey, imageModel) {
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ ok: false, error: "method_not_allowed" });
   try {
-    if (!supabaseUrl() || !serviceKey())
-      throw Object.assign(
-        new Error(
-          "A função Vercel não possui SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY. Configure as duas variáveis server-side e faça redeploy.",
-        ),
-        { statusCode: 503 },
-      );
+    if (!supabaseUrl() || !serviceKey()) {
+      return res.status(200).json({
+        ok: false,
+        runtime: "nodejs",
+        worker: { deployed: true, configured: false, oneJobPerRequest: true },
+        queue: { reachable: false, lastJob: null },
+        credentials: {
+          openai: {
+            configured: false,
+            connected: false,
+            source: "edge-secrets-unavailable-to-vercel",
+            masked: null,
+          },
+          metaConfigured: false,
+        },
+        error:
+          "Worker Vercel sem SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY. Os Secrets das Edge Functions continuam válidos e serão usados pelo fallback Supabase Edge compute-safe.",
+      });
+    }
 
     const actor = await authorize(req);
     const [jobs, logs, secrets] = await Promise.all([
@@ -111,7 +123,7 @@ export default async function handler(req, res) {
       ok: jobs.ok && logs.ok && secrets.ok && openai.connected && openai.imageModelAvailable,
       actor,
       runtime: "nodejs",
-      worker: { deployed: true, oneJobPerRequest: true },
+      worker: { deployed: true, configured: true, oneJobPerRequest: true },
       queue: { reachable: jobs.ok, status: jobs.status, lastJob: jobs.body?.[0] ?? null },
       logs: { reachable: logs.ok, status: logs.status },
       credentials: {
