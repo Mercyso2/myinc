@@ -2,9 +2,13 @@ import { ensurePublicBucket } from "./_storage.js";
 import { carouselInput, carouselPrompt, mergeCarouselUrls } from "./_carousel.js";
 import { downloadVideoBytes, pollVideoJob, startVideoJob, videoEnabled } from "./_video.js";
 
+let runtimeConfig = {};
+
 const env = (key, fallback = "") => {
-  const value = process.env[key];
-  return value === undefined || value === null || String(value).trim() === "" ? fallback : String(value).trim();
+  const value = runtimeConfig[key] ?? process.env[key];
+  return value === undefined || value === null || String(value).trim() === ""
+    ? fallback
+    : String(value).trim();
 };
 
 const required = (key) => {
@@ -15,11 +19,14 @@ const required = (key) => {
 
 const SUPABASE_URL = required("SUPABASE_URL").replace(/\/$/, "");
 const SERVICE_KEY = required("SUPABASE_SERVICE_ROLE_KEY");
-const OPENAI_API_KEY = required("OPENAI_API_KEY");
-const MEDIA_BUCKET = env("MEDIA_BUCKET", "creative-media");
+let OPENAI_API_KEY = env("OPENAI_API_KEY");
+let MEDIA_BUCKET = env("MEDIA_BUCKET", "creative-media");
 const WORKER_ID = env("WORKER_ID", "vercel-ai-worker-v3");
-const MAX_ATTEMPTS = Math.max(1, Number(env("WORKER_MAX_ATTEMPTS", env("QUEUE_MAX_ATTEMPTS", "3"))));
-const MAX_JOBS = Math.max(1, Math.min(10, Number(env("VERCEL_WORKER_MAX_JOBS", "2"))));
+const MAX_ATTEMPTS = Math.max(
+  1,
+  Number(env("WORKER_MAX_ATTEMPTS", env("QUEUE_MAX_ATTEMPTS", "3"))),
+);
+const MAX_JOBS = 1;
 
 function short(value, max = 1200) {
   const raw = typeof value === "string" ? value : JSON.stringify(value ?? "");
@@ -53,8 +60,10 @@ async function rest(path, options = {}) {
 }
 
 const first = (result) => (Array.isArray(result) ? result[0] : result);
-const insert = async (table, row) => first(await rest(table, { method: "POST", body: JSON.stringify(row) }));
-const patch = async (table, query, row) => first(await rest(`${table}?${query}`, { method: "PATCH", body: JSON.stringify(row) }));
+const insert = async (table, row) =>
+  first(await rest(table, { method: "POST", body: JSON.stringify(row) }));
+const patch = async (table, query, row) =>
+  first(await rest(`${table}?${query}`, { method: "PATCH", body: JSON.stringify(row) }));
 const selectOne = async (table, query) => first(await rest(`${table}?${query}`));
 
 async function uploadObject(path, bytes, contentType) {
@@ -76,6 +85,14 @@ async function uploadObject(path, bytes, contentType) {
 
 async function log(row) {
   try {
+    if (row.job_id) {
+      await insert("generation_job_events", {
+        job_id: row.job_id,
+        event_type: row.event_type || row.status || "info",
+        message: row.message || "Evento do worker.",
+        detail: row.metadata || (row.detail ? { technical_detail: short(row.detail) } : null),
+      });
+    }
     await insert("system_logs", {
       module: "vercel-ai-worker-v3",
       type: "worker",
@@ -91,28 +108,47 @@ async function log(row) {
   }
 }
 
-async function lockNextJob() {
-  const now = encodeURIComponent(new Date().toISOString());
-  const query = [
-    "select=*",
-    "status=eq.queued",
-    `or=(next_attempt_at.is.null,next_attempt_at.lte.${now})`,
-    "order=priority.asc,created_at.asc",
-    "limit=1",
-  ].join("&");
-  const job = await selectOne("generation_jobs", query);
-  if (!job) return null;
+async function loadRuntimeConfig() {
+  const rows = await rest("runtime_secrets?select=key,value").catch(() => []);
+  runtimeConfig = Object.fromEntries(
+    (Array.isArray(rows) ? rows : [])
+      .filter((row) => row?.key && row?.value)
+      .map((row) => [row.key, String(row.value).trim()]),
+  );
+  for (const [key, value] of Object.entries(runtimeConfig)) process.env[key] = value;
+  OPENAI_API_KEY = env("OPENAI_API_KEY");
+  MEDIA_BUCKET = env("MEDIA_BUCKET", "creative-media");
+}
 
-  const attempt = Number(job.attempt_count || 0) + 1;
-  return patch("generation_jobs", `id=eq.${job.id}&status=eq.queued`, {
-    status: "processing",
-    progress: 5,
-    attempt_count: attempt,
-    locked_by: WORKER_ID,
-    locked_at: new Date().toISOString(),
-    started_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+async function requireAuthorizedRequest(req) {
+  const authorization = String(req.headers.authorization || "");
+  const cronSecret = env("CRON_SECRET");
+  if (cronSecret && authorization === `Bearer ${cronSecret}`) return { kind: "cron" };
+  const token = authorization.replace(/^Bearer\s+/i, "").trim();
+  if (!token)
+    throw Object.assign(new Error("Token de usuário ou CRON_SECRET ausente."), { statusCode: 401 });
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${token}` },
   });
+  const user = await response.json().catch(() => ({}));
+  if (!response.ok || !user?.id)
+    throw Object.assign(new Error("Sessão inválida ou expirada."), { statusCode: 401 });
+  const profile = await selectOne(
+    "app_users",
+    `select=status&or=(auth_user_id.eq.${user.id},email.eq.${encodeURIComponent(user.email || "")})&limit=1`,
+  ).catch(() => null);
+  if (profile && ["disabled", "inactive", "blocked"].includes(String(profile.status))) {
+    throw Object.assign(new Error("Usuário sem perfil ativo."), { statusCode: 403 });
+  }
+  return { kind: "user", userId: user.id };
+}
+
+async function lockNextJob() {
+  const claimed = await rest("rpc/claim_generation_job", {
+    method: "POST",
+    body: JSON.stringify({ worker_id: WORKER_ID }),
+  });
+  return first(claimed);
 }
 
 async function getPost(postId) {
@@ -124,10 +160,18 @@ async function getPost(postId) {
 async function brandContext(brandId) {
   const [profile, rules, prompts, refs, visualRules] = await Promise.all([
     selectOne("brand_profiles", `select=*&brand_id=eq.${brandId}&limit=1`).catch(() => null),
-    rest(`ai_brain_rules?select=category,content,priority&brand_id=eq.${brandId}&active=eq.true&archived_at=is.null&order=priority.asc&limit=14`).catch(() => []),
-    rest(`ai_prompt_templates?select=name,content&brand_id=eq.${brandId}&active=eq.true&archived_at=is.null&limit=8`).catch(() => []),
-    rest(`library_items?select=name,notes,ai_usage_rule,url,status,item_type&brand_id=eq.${brandId}&ai_allowed=eq.true&archived_at=is.null&limit=12`).catch(() => []),
-    rest(`brand_visual_rules?select=rule_type,content&brand_id=eq.${brandId}&active=eq.true&archived_at=is.null&limit=12`).catch(() => []),
+    rest(
+      `ai_brain_rules?select=category,content,priority&brand_id=eq.${brandId}&active=eq.true&archived_at=is.null&order=priority.asc&limit=14`,
+    ).catch(() => []),
+    rest(
+      `ai_prompt_templates?select=name,content&brand_id=eq.${brandId}&active=eq.true&archived_at=is.null&limit=8`,
+    ).catch(() => []),
+    rest(
+      `library_items?select=name,notes,ai_usage_rule,url,status,item_type&brand_id=eq.${brandId}&ai_allowed=eq.true&archived_at=is.null&limit=12`,
+    ).catch(() => []),
+    rest(
+      `brand_visual_rules?select=rule_type,content&brand_id=eq.${brandId}&active=eq.true&archived_at=is.null&limit=12`,
+    ).catch(() => []),
   ]);
   return { profile, rules, prompts, references: refs, visualRules };
 }
@@ -176,7 +220,10 @@ async function processContent(job, post) {
     },
   ]);
 
-  const qualityScore = Math.max(0, Math.min(100, Number(payload.quality_score || post.quality_score || 88)));
+  const qualityScore = Math.max(
+    0,
+    Math.min(100, Number(payload.quality_score || post.quality_score || 88)),
+  );
   const row = {
     title: payload.title || post.title,
     headline: payload.headline || post.headline,
@@ -187,8 +234,11 @@ async function processContent(job, post) {
     creative_brief: payload.creative_brief || post.creative_brief,
     master_prompt: payload.master_prompt || post.master_prompt,
     quality_score: qualityScore,
-    quality_review: payload.quality_review || post.quality_review || { overall_score: qualityScore },
-    video_prompt: payload.video_script ? JSON.stringify(payload.video_script, null, 2) : post.video_prompt,
+    quality_review: payload.quality_review ||
+      post.quality_review || { overall_score: qualityScore },
+    video_prompt: payload.video_script
+      ? JSON.stringify(payload.video_script, null, 2)
+      : post.video_prompt,
     status: qualityScore >= 88 ? "copy_gerada" : "ajuste_solicitado",
     error_message: null,
     technical_detail: null,
@@ -213,8 +263,10 @@ function imageSize(format = "") {
   const f = String(format).toLowerCase();
   const explicit = env("OPENAI_IMAGE_SIZE", "");
   if (explicit) return explicit;
-  if (f.includes("quadrado") || f.includes("thumbnail")) return env("OPENAI_IMAGE_SIZE_SQUARE", "1024x1024");
-  if (f.includes("facebook") && !f.includes("story")) return env("OPENAI_IMAGE_SIZE_FACEBOOK", "1536x1024");
+  if (f.includes("quadrado") || f.includes("thumbnail"))
+    return env("OPENAI_IMAGE_SIZE_SQUARE", "1024x1024");
+  if (f.includes("facebook") && !f.includes("story"))
+    return env("OPENAI_IMAGE_SIZE_FACEBOOK", "1536x1024");
   return env("OPENAI_IMAGE_SIZE_PORTRAIT", env("OPENAI_IMAGE_SIZE_STORY", "1024x1536"));
 }
 
@@ -272,15 +324,15 @@ async function generateImageBytes(prompt, size) {
         n: 1,
         quality,
       };
-      const payloads = [
-        { ...payload, output_format: env("OPENAI_IMAGE_FORMAT", "png") },
-        payload,
-      ];
+      const payloads = [{ ...payload, output_format: env("OPENAI_IMAGE_FORMAT", "png") }, payload];
 
       for (const body of payloads) {
         const response = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
-          headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify(body),
         });
         const data = await response.json().catch(() => ({}));
@@ -290,13 +342,17 @@ async function generateImageBytes(prompt, size) {
         if (response.ok && (encoded || imageUrl)) {
           const bytes = encoded ? Buffer.from(encoded, "base64") : await fetchUrlBytes(imageUrl);
           if (bytes.length < 120000) {
-            errors.push(`${model}/${quality}/${size}: imagem pequena demais (${bytes.length} bytes)`);
+            errors.push(
+              `${model}/${quality}/${size}: imagem pequena demais (${bytes.length} bytes)`,
+            );
             continue;
           }
           return { bytes, model, quality, size };
         }
 
-        errors.push(`${model}/${quality}/${size}: HTTP ${response.status} ${short(data.error || data, 600)}`);
+        errors.push(
+          `${model}/${quality}/${size}: HTTP ${response.status} ${short(data.error || data, 600)}`,
+        );
       }
     }
   }
@@ -366,7 +422,12 @@ async function processImage(job, post) {
     image_prompt: prompt,
     media_url: out.publicUrl,
     is_current: true,
-    output_json: { media_url: out.publicUrl, asset_id: out.asset?.id, image_model: out.model, size_bytes: out.bytes },
+    output_json: {
+      media_url: out.publicUrl,
+      asset_id: out.asset?.id,
+      image_model: out.model,
+      size_bytes: out.bytes,
+    },
   });
   return updated;
 }
@@ -383,7 +444,9 @@ async function processCarouselPage(job, post) {
     tags: ["ia", "myinc", "carousel", `page-${page}`],
     metadata: { kind: "carousel_page", page, total_pages: totalPages },
   });
-  const existing = await rest(`media_assets?select=url,public_url,metadata,created_at&post_id=eq.${post.id}&usage_context=eq.carousel_page&order=created_at.asc`).catch(() => []);
+  const existing = await rest(
+    `media_assets?select=url,public_url,metadata,created_at&post_id=eq.${post.id}&usage_context=eq.carousel_page&order=created_at.asc`,
+  ).catch(() => []);
   const urls = mergeCarouselUrls(existing, out.publicUrl);
   const done = urls.length >= totalPages;
   const updated = await patch("posts", `id=eq.${post.id}`, {
@@ -401,19 +464,31 @@ async function processCarouselPage(job, post) {
     image_prompt: prompt,
     media_url: out.publicUrl,
     is_current: done,
-    output_json: { media_url: out.publicUrl, asset_id: out.asset?.id, image_model: out.model, page, total_pages: totalPages },
+    output_json: {
+      media_url: out.publicUrl,
+      asset_id: out.asset?.id,
+      image_model: out.model,
+      page,
+      total_pages: totalPages,
+    },
   });
   return updated;
 }
 
 async function processVideo(job, post) {
   if (!videoEnabled()) {
-    throw new Error("Video desativado. Configure ENABLE_OPENAI_VIDEO=true ou ENABLE_VIDEO_WORKER=true na Vercel.");
+    throw new Error(
+      "Video desativado. Configure ENABLE_OPENAI_VIDEO=true ou ENABLE_VIDEO_WORKER=true na Vercel.",
+    );
   }
   const ctx = await brandContext(post.brand_id);
 
   if (!post.video_job_id) {
-    const started = await startVideoJob({ apiKey: OPENAI_API_KEY, post, contextText: short(ctx, 2600) });
+    const started = await startVideoJob({
+      apiKey: OPENAI_API_KEY,
+      post,
+      contextText: short(ctx, 2600),
+    });
     await patch("posts", `id=eq.${post.id}`, {
       video_job_id: started.id,
       video_status: started.status,
@@ -434,7 +509,8 @@ async function processVideo(job, post) {
     });
     return { pending: true, status: state.status, videoId: post.video_job_id };
   }
-  if (state.status !== "completed") throw new Error(`Video falhou ou ficou em status inesperado: ${short(state)}`);
+  if (state.status !== "completed")
+    throw new Error(`Video falhou ou ficou em status inesperado: ${short(state)}`);
 
   const bytes = await downloadVideoBytes({ apiKey: OPENAI_API_KEY, videoId: post.video_job_id });
   if (bytes.length < 200000) throw new Error(`MP4 muito pequeno (${bytes.length} bytes).`);
@@ -503,7 +579,9 @@ async function requeue(job, result) {
     progress: 35,
     error_message: null,
     technical_detail: `Pendente: ${result.status || "processing"}`,
-    next_attempt_at: new Date(Date.now() + Number(env("VIDEO_RETRY_SECONDS", "60")) * 1000).toISOString(),
+    next_attempt_at: new Date(
+      Date.now() + Number(env("VIDEO_RETRY_SECONDS", "60")) * 1000,
+    ).toISOString(),
     updated_at: new Date().toISOString(),
   });
 }
@@ -517,6 +595,8 @@ async function fail(job, error) {
       status: "failed",
       progress: 100,
       error_message: detail,
+      error_code: error?.code || error?.status || "PROVIDER_ERROR",
+      provider_response: { message: short(detail), provider: job.provider || "openai" },
       technical_detail: detail,
       finished_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -534,6 +614,8 @@ async function fail(job, error) {
       status: "queued",
       progress: 0,
       error_message: detail,
+      error_code: error?.code || error?.status || "PROVIDER_RETRY",
+      provider_response: { message: short(detail), provider: job.provider || "openai" },
       technical_detail: detail,
       next_attempt_at: new Date(Date.now() + Math.min(900000, attempt * 60000)).toISOString(),
       updated_at: new Date().toISOString(),
@@ -544,7 +626,10 @@ async function fail(job, error) {
 async function runJob(job) {
   const post = await getPost(job.post_id);
   const type = String(job.job_type || job.type || "content");
-  await patch("generation_jobs", `id=eq.${job.id}`, { progress: 15, updated_at: new Date().toISOString() });
+  await patch("generation_jobs", `id=eq.${job.id}`, {
+    progress: 15,
+    updated_at: new Date().toISOString(),
+  });
 
   let result;
   if (type === "content") result = await processContent(job, post);
@@ -559,6 +644,7 @@ async function runJob(job) {
       status: "info",
       message: "Job ainda pendente e reagendado.",
       detail: `job=${job.id}; type=${type}; status=${result.status}`,
+      job_id: job.id,
       brand_id: post.brand_id,
       post_id: post.id,
     });
@@ -570,49 +656,79 @@ async function runJob(job) {
     status: "sucesso",
     message: "Job processado pela Vercel Function v3.",
     detail: `job=${job.id}; type=${type}`,
+    job_id: job.id,
     brand_id: post.brand_id,
     post_id: post.id,
   });
 }
 
 export default async function handler(req, res) {
-  const secret = env("CRON_SECRET", "");
-  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
-    return res.status(401).json({ ok: false, error: "unauthorized" });
-  }
+  if (!["GET", "POST"].includes(req.method))
+    return res.status(405).json({ ok: false, error: "method_not_allowed" });
 
-  if (req.method === "GET") {
-    return res.status(200).json({
-      ok: true,
-      worker: WORKER_ID,
-      maxJobs: MAX_JOBS,
-      imageModels: imageModelCandidates(),
-      imageSizeDefault: imageSize("Feed 1080x1350"),
-      videoEnabled: videoEnabled(),
-    });
-  }
+  try {
+    const actor = await requireAuthorizedRequest(req);
+    await loadRuntimeConfig();
+    if (!OPENAI_API_KEY)
+      throw Object.assign(new Error("OPENAI_API_KEY ausente em runtime_secrets e na Vercel."), {
+        statusCode: 503,
+      });
 
-  const started = Date.now();
-  let processed = 0;
-  const errors = [];
-
-  for (let index = 0; index < MAX_JOBS; index++) {
+    const started = Date.now();
     const job = await lockNextJob();
-    if (!job) break;
+    if (!job)
+      return res.status(200).json({
+        ok: true,
+        processed: 0,
+        worker: WORKER_ID,
+        actor: actor.kind,
+        ms: Date.now() - started,
+      });
+
     try {
+      await log({
+        job_id: job.id,
+        event_type: "started",
+        status: "info",
+        message: "Job iniciado pela Vercel Function.",
+        detail: `type=${job.job_type || job.type}; attempt=${job.attempt_count}`,
+        post_id: job.post_id,
+        brand_id: job.brand_id,
+      });
       await runJob(job);
-      processed++;
+      return res.status(200).json({
+        ok: true,
+        processed: 1,
+        jobId: job.id,
+        jobType: job.job_type || job.type,
+        worker: WORKER_ID,
+        actor: actor.kind,
+        ms: Date.now() - started,
+      });
     } catch (error) {
       await fail(job, error);
-      errors.push(error?.message || String(error));
       await log({
+        job_id: job.id,
+        event_type: "failed",
         status: "erro",
         message: "Falha no worker Vercel v3.",
         detail: `job=${job.id}; error=${error?.message || String(error)}`,
         post_id: job.post_id,
+        brand_id: job.brand_id,
+      });
+      return res.status(200).json({
+        ok: false,
+        processed: 1,
+        jobId: job.id,
+        jobType: job.job_type || job.type,
+        error: error?.message || String(error),
+        worker: WORKER_ID,
+        ms: Date.now() - started,
       });
     }
+  } catch (error) {
+    return res
+      .status(error?.statusCode || 500)
+      .json({ ok: false, processed: 0, error: error?.message || String(error) });
   }
-
-  return res.status(200).json({ ok: true, worker: WORKER_ID, processed, errors, ms: Date.now() - started });
 }

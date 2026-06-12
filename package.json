@@ -34,7 +34,9 @@
     "desktop:pack": "npm run build && npx electron-builder --dir",
     "desktop:setup": "npm install -D electron electron-builder",
     "smoke:local": "node scripts/smoke-media-engine.mjs",
-    "verify:server": "node --check server/local-api.mjs && node scripts/smoke-media-engine.mjs --static"
+    "verify:server": "node --check server/local-api.mjs && node scripts/smoke-media-engine.mjs --static",
+    "test": "node --test tests/*.test.mjs",
+    "diagnose": "node scripts/diagnose.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
