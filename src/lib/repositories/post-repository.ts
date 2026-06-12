@@ -36,18 +36,18 @@ async function resolveBatchBrandId(token: string, payload: BatchPayload) {
 }
 
 async function queueMediaBatch(token: string, payload: BatchPayload, mode: "image" | "video" | "mixed") {
-  const postIds = payload.postIds ?? [];
+  const postIds = Array.from(new Set(payload.postIds ?? [])).filter(Boolean);
   if (!postIds.length) throw new Error("Nenhum post selecionado para fila.");
-  const brandId = await resolveBatchBrandId(token, payload);
+  const brandId = await resolveBatchBrandId(token, { ...payload, postIds });
   const response = await createProductionBatch(token, {
     brandId,
     postIds,
     instruction:
       mode === "video"
-        ? "Criar jobs de vídeo/Reels no worker externo Vercel."
+        ? "Criar jobs de vídeo/Reels no worker Vercel v3, usando prompts premium e validação real."
         : mode === "image"
-          ? "Criar jobs de imagem/carrossel no worker externo Vercel."
-          : "Criar jobs de mídia no worker externo Vercel.",
+          ? "Criar jobs de imagem/carrossel no worker Vercel v3, com arte base premium sem texto/logo."
+          : "Criar jobs de mídia no worker Vercel v3 com validação real.",
   });
   return {
     ok: true as const,
@@ -56,10 +56,12 @@ async function queueMediaBatch(token: string, payload: BatchPayload, mode: "imag
     generated: 0,
     queued: response.queued ?? 0,
     remaining: 0,
-    results: [],
+    results: response.jobs ?? [],
+    skipped: response.skipped ?? [],
+    batchId: response.batchId,
     message: response.queued
-      ? `${response.queued} job(s) enviados para a fila externa Vercel. Clique em Atualizar após o worker processar.`
-      : "Fila externa criada para processamento pela Vercel.",
+      ? `${response.queued} job(s) enviados para a fila Vercel v3. Use Processar agora/Atualizar para acompanhar.`
+      : "Nenhum job criado. Verifique se os posts estão ativos, não arquivados e possuem brand_id.",
   };
 }
 
@@ -96,27 +98,13 @@ export function deletePost(token: string, id: string) {
 export function updatePostContent(
   token: string,
   id: string,
-  patch: Pick<
-    Partial<PostRow>,
-    | "title"
-    | "headline"
-    | "caption"
-    | "hashtags"
-    | "cta"
-    | "image_prompt"
-    | "creative_brief"
-    | "scheduled_at"
-    | "media_url"
-  >,
+  patch: Pick<Partial<PostRow>, "title" | "headline" | "caption" | "hashtags" | "cta" | "image_prompt" | "creative_brief" | "scheduled_at" | "media_url">,
 ) {
   return postRepository.update(token, id, patch as Partial<PostRow>);
 }
 
 export function generatePostContent(token: string, postId: string, instruction?: string) {
-  return callEdgeFunction<{ ok: true; post: PostRow; message?: string }>("generate-post-content-safe", token, {
-    postId,
-    instruction,
-  });
+  return callEdgeFunction<{ ok: true; post: PostRow; message?: string }>("generate-post-content-safe", token, { postId, instruction });
 }
 
 export async function generatePostImage(token: string, postId: string, jobType?: "image" | "carousel" | "video") {
@@ -127,10 +115,10 @@ export async function generatePostImage(token: string, postId: string, jobType?:
     postIds: [postId],
     instruction:
       jobType === "video"
-        ? "Criar job de vídeo/Reels no worker externo Vercel."
+        ? "Criar job de vídeo/Reels no worker Vercel v3."
         : jobType === "carousel"
-          ? "Criar páginas de carrossel no worker externo Vercel."
-          : "Criar imagem no worker externo Vercel.",
+          ? "Criar páginas de carrossel no worker Vercel v3."
+          : "Criar imagem premium sem texto/logo no worker Vercel v3.",
   });
   return {
     ok: true as const,
@@ -138,9 +126,10 @@ export async function generatePostImage(token: string, postId: string, jobType?:
     status: "queued",
     jobType: jobType ?? "image",
     post,
+    batchId: response.batchId,
     message: response.queued
-      ? `Mídia enviada para fila externa Vercel (${response.queued} job(s)). Clique em Atualizar após o worker processar.`
-      : "Mídia enviada para fila externa Vercel.",
+      ? `Mídia enviada para fila Vercel v3 (${response.queued} job(s)). Use Processar agora/Atualizar para acompanhar.`
+      : "Mídia enviada para fila Vercel v3.",
   };
 }
 
@@ -156,11 +145,7 @@ export function getGenerationStatus(token: string, payload: { jobId?: string; po
 }
 
 export function publishPostNow(token: string, postId: string) {
-  return callEdgeFunction<{ ok: true; post: PostRow; publishedUrl?: string }>(
-    "publish-meta",
-    token,
-    { postId },
-  );
+  return callEdgeFunction<{ ok: true; post: PostRow; publishedUrl?: string }>("publish-meta", token, { postId });
 }
 
 export function generateImagesBatch(token: string, payload: BatchPayload) {
@@ -186,39 +171,33 @@ export async function reviewPostQuality(token: string, postId: string) {
   return { ok: true as const, post, message: "Revisão de qualidade registrada." };
 }
 
-export async function renderPostTemplate(token: string, postId: string) {
-  const post = await postRepository.update(token, postId, {
-    technical_detail: "Template MYINC marcado para aplicação/revisão visual.",
-    updated_at: new Date().toISOString(),
-  } as Partial<PostRow>);
-  return { ok: true as const, post, message: "Template MYINC marcado para revisão visual." };
+export function renderPostTemplate(token: string, postId: string) {
+  return callEdgeFunction<{ ok: true; post: PostRow; mediaUrl?: string; message?: string }>("render-template", token, { postId });
 }
 
-export async function renderTemplatesBatch(
-  token: string,
-  payload: { brandId?: string; postIds?: string[] },
-) {
-  const postIds = payload.postIds ?? [];
-  const results = await Promise.all(
-    postIds.map((postId) => renderPostTemplate(token, postId).catch((error) => ({ ok: false, postId, error }))),
-  );
-  return {
-    ok: true as const,
-    processed: results.length,
-    results,
-    message: `${results.length} template(s) marcado(s) para revisão visual.`,
-  };
+export function renderTemplatesBatch(token: string, payload: { brandId?: string; postIds?: string[] }) {
+  return callEdgeFunction<{
+    ok: true;
+    processed: number;
+    results: Array<{ postId: string; ok: boolean; result?: unknown; error?: string }>;
+    message?: string;
+  }>("render-templates-batch", token, payload);
 }
 
-export async function createLocalBackup(token: string, label?: string) {
-  const rows = await postRepository.listActive(token, "select=*&order=updated_at.desc&limit=500");
-  const payload = {
-    ok: true as const,
-    label: label ?? `backup-${new Date().toISOString()}`,
-    createdAt: new Date().toISOString(),
-    totalPosts: rows.length,
-  };
-  return { ...payload, message: `Backup lógico registrado com ${rows.length} post(s) ativo(s).` };
+export function createLocalBackup(token: string, label?: string) {
+  return callEdgeFunction<{
+    ok: true;
+    backup: {
+      id: string;
+      label: string;
+      createdAt: string;
+      bucket: string;
+      path: string;
+      sizeBytes: number;
+      summary: Record<string, { rows: number; filteredByBrand: boolean; error: string | null }>;
+    };
+    message?: string;
+  }>("backup-create", token, { label: label ?? `studio-${new Date().toISOString()}` });
 }
 
 export function runAutonomousProduction(
@@ -244,11 +223,8 @@ export function runAutonomousProduction(
   }>("autonomous-run", token, payload);
 }
 
-export function createProductionBatch(
-  token: string,
-  payload: { brandId: string; postIds: string[]; instruction?: string },
-) {
-  return callEdgeFunction<{ ok: true; batchId: string; queued: number; processed?: number }>(
+export function createProductionBatch(token: string, payload: { brandId: string; postIds: string[]; instruction?: string }) {
+  return callEdgeFunction<{ ok: true; batchId: string; queued: number; processed?: number; skipped?: unknown[]; jobs?: unknown[] }>(
     "process-production-queue",
     token,
     payload,
@@ -268,31 +244,16 @@ export async function hydratePostRelations(token: string, posts: PostRow[]) {
   ]);
   const versionMap = new Map<string, PostVersionRow[]>();
   const commentMap = new Map<string, ContentCommentRow[]>();
-  versions.forEach((version) =>
-    versionMap.set(version.post_id, [...(versionMap.get(version.post_id) ?? []), version]),
-  );
-  comments.forEach((comment) =>
-    commentMap.set(comment.post_id, [...(commentMap.get(comment.post_id) ?? []), comment]),
-  );
+  versions.forEach((version) => versionMap.set(version.post_id, [...(versionMap.get(version.post_id) ?? []), version]));
+  comments.forEach((comment) => commentMap.set(comment.post_id, [...(commentMap.get(comment.post_id) ?? []), comment]));
   return { versions: versionMap, comments: commentMap };
 }
 
 export function improvePost(
   token: string,
   postId: string,
-  mode:
-    | "copy"
-    | "premium"
-    | "commercial"
-    | "institutional"
-    | "visual"
-    | "shorter"
-    | "carousel" = "premium",
+  mode: "copy" | "premium" | "commercial" | "institutional" | "visual" | "shorter" | "carousel" = "premium",
   regenerateMedia = false,
 ) {
-  return callEdgeFunction<{ ok: true; post: PostRow; review?: unknown }>("improve-post", token, {
-    postId,
-    mode,
-    regenerateMedia,
-  });
+  return callEdgeFunction<{ ok: true; post: PostRow; review?: unknown }>("improve-post", token, { postId, mode, regenerateMedia });
 }
