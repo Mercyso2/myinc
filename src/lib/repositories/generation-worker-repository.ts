@@ -1,5 +1,3 @@
-import { callEdgeFunction } from "@/lib/supabase/client";
-
 export type ProcessNextGenerationJobResult = {
   ok: boolean;
   processed: number;
@@ -9,14 +7,53 @@ export type ProcessNextGenerationJobResult = {
   result?: unknown;
   message?: string;
   error?: string;
+  processor?: "vercel" | "supabase-edge-proxy" | "supabase-edge";
 };
 
-export function processNextGenerationJob(token: string, payload: { batchId?: string } = {}) {
-  return callEdgeFunction<ProcessNextGenerationJobResult>(
-    "process-next-generation-job",
-    token,
-    payload,
-  );
+export async function processNextGenerationJob(token: string, payload: { batchId?: string } = {}) {
+  const routes = ["/api/jobs/process-next", "/api/worker/process"];
+  let lastError = "Processador Vercel indisponível.";
+
+  for (const route of routes) {
+    try {
+      const response = await fetch(route, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await response.json().catch(() => ({}))) as ProcessNextGenerationJobResult;
+      if (response.ok) return { ...data, processor: "vercel" as const };
+
+      lastError = data.error ?? `${route} respondeu HTTP ${response.status}.`;
+      if (response.status < 500 && response.status !== 404 && response.status !== 405) break;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : `Falha de rede em ${route}.`;
+    }
+  }
+
+  try {
+    const proxyResponse = await fetch("/api/edge/process-next", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const proxyResult = (await proxyResponse
+      .json()
+      .catch(() => ({}))) as ProcessNextGenerationJobResult;
+    if (proxyResponse.ok) {
+      return {
+        ...proxyResult,
+        processor: "supabase-edge-proxy" as const,
+        message:
+          proxyResult.message ?? "Processado pela Supabase Edge via proxy seguro same-origin.",
+      };
+    }
+    lastError = `${lastError} | Proxy Edge: ${proxyResult.error ?? `HTTP ${proxyResponse.status}`}`;
+  } catch (proxyError) {
+    lastError = `${lastError} | Proxy Edge: ${proxyError instanceof Error ? proxyError.message : String(proxyError)}`;
+  }
+
+  throw new Error(`Nenhum processador respondeu. ${lastError}`);
 }
 
 export function useExternalAiWorker() {
@@ -33,16 +70,6 @@ export async function processGenerationBatchSequentially(
     forceEdge?: boolean;
   } = {},
 ) {
-  if (useExternalAiWorker() && !payload.forceEdge) {
-    const queuedResult: ProcessNextGenerationJobResult = {
-      ok: true,
-      processed: 0,
-      message: "Fila criada. O AI Worker externo processará as tarefas fora do Supabase Edge.",
-    };
-    payload.onStep?.({ index: 0, result: queuedResult });
-    return [queuedResult];
-  }
-
   const maxSteps = Math.max(1, Math.min(120, Number(payload.maxSteps ?? 60)));
   const results: ProcessNextGenerationJobResult[] = [];
 
@@ -50,8 +77,23 @@ export async function processGenerationBatchSequentially(
     const result = await processNextGenerationJob(token, { batchId: payload.batchId });
     results.push(result);
     payload.onStep?.({ index: index + 1, result });
-    if (!result.ok || result.processed === 0) break;
+    if (result.processed === 0) break;
   }
 
   return results;
+}
+
+export async function retryPostGenerationJobs(token: string, postId: string) {
+  const response = await fetch("/api/jobs/retry", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ postId }),
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    ok?: boolean;
+    retried?: number;
+    error?: string;
+  };
+  if (!response.ok) throw new Error(data.error ?? `Retry respondeu HTTP ${response.status}.`);
+  return { ...data, message: `${data.retried ?? 0} job(s) reenfileirado(s) para retry.` };
 }

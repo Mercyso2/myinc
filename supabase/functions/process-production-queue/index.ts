@@ -23,11 +23,15 @@ function carouselCount(format = "") {
   return String(format).includes("8") ? 8 : 5;
 }
 
-function isHiddenPost(post: { status?: string | null; archived_at?: string | null; deleted_at?: string | null }) {
+function isHiddenPost(post: {
+  status?: string | null;
+  archived_at?: string | null;
+  deleted_at?: string | null;
+}) {
   return Boolean(
     post.archived_at ||
-      post.deleted_at ||
-      HIDDEN_STATUSES.has(String(post.status ?? "").toLowerCase()),
+    post.deleted_at ||
+    HIDDEN_STATUSES.has(String(post.status ?? "").toLowerCase()),
   );
 }
 
@@ -51,7 +55,11 @@ serve(async (req) => {
         .eq("id", postId)
         .maybeSingle();
       if (postError || !post) {
-        skipped.push({ postId, ok: false, reason: stringifyError(postError ?? "Post nao encontrado") });
+        skipped.push({
+          postId,
+          ok: false,
+          reason: stringifyError(postError ?? "Post nao encontrado"),
+        });
         continue;
       }
       if (isHiddenPost(post)) {
@@ -78,21 +86,24 @@ serve(async (req) => {
         updated_at: new Date().toISOString(),
       };
 
-      const { data: contentJob, error: contentError } = await supabase
-        .from("generation_jobs")
-        .insert({
-          ...common,
-          type: "content",
-          job_type: "content",
-          priority: 10,
-          input_json: {
-            instruction: payload.instruction ?? "Produzir conteudo premium MYINC.",
-          },
-        })
-        .select("id,type,job_type,post_id,status")
-        .single();
-      if (contentError) throw contentError;
-      queuedJobs.push(contentJob);
+      if (payload.includeContent !== false) {
+        const { data: contentJob, error: contentError } = await supabase
+          .from("generation_jobs")
+          .insert({
+            ...common,
+            type: "content",
+            job_type: "content",
+            priority: 10,
+            idempotency_key: `${batchId}:${postId}:content`,
+            input_json: {
+              instruction: payload.instruction ?? "Produzir conteudo premium MYINC.",
+            },
+          })
+          .select("id,type,job_type,post_id,status")
+          .single();
+        if (contentError) throw contentError;
+        queuedJobs.push(contentJob);
+      }
 
       const format = String(post.format ?? "");
       if (isCarousel(format)) {
@@ -105,6 +116,7 @@ serve(async (req) => {
               type: "carousel_page",
               job_type: "carousel_page",
               priority: 20 + page,
+              idempotency_key: `${batchId}:${postId}:carousel_page:${page}`,
               input_json: { page, total_pages: count },
             })
             .select("id,type,job_type,post_id,status,input_json")
@@ -120,6 +132,7 @@ serve(async (req) => {
             type: "video",
             job_type: "video",
             priority: 20,
+            idempotency_key: `${batchId}:${postId}:video`,
             input_json: { force: Boolean(payload.force) },
           })
           .select("id,type,job_type,post_id,status")
@@ -134,6 +147,7 @@ serve(async (req) => {
             type: "image",
             job_type: "image",
             priority: 20,
+            idempotency_key: `${batchId}:${postId}:image`,
             input_json: {},
           })
           .select("id,type,job_type,post_id,status")

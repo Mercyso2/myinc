@@ -31,6 +31,30 @@ export const Route = createFileRoute("/admin")({
   component: Admin,
 });
 
+type WorkerHealth = {
+  ok: boolean;
+  error?: string;
+  runtime?: string;
+  worker?: { deployed?: boolean; configured?: boolean; oneJobPerRequest?: boolean };
+  queue?: {
+    reachable?: boolean;
+    lastJob?: { status?: string; error_message?: string | null } | null;
+  };
+  credentials?: {
+    openai?: {
+      configured?: boolean;
+      connected?: boolean;
+      imageModel?: string;
+      imageModelAvailable?: boolean;
+      source?: string;
+      masked?: string | null;
+      error?: string | null;
+      updatedAt?: string | null;
+    };
+    metaConfigured?: boolean;
+  };
+};
+
 type AdminStatus = {
   ok: boolean;
   admin?: boolean;
@@ -39,6 +63,20 @@ type AdminStatus = {
   database?: { connected: boolean; tables: Record<string, boolean> };
   storage?: Record<string, boolean>;
   edgeFunctions?: Record<string, boolean>;
+  imageDiagnostic?: {
+    openaiApiKey?: boolean;
+    openaiKeySource?: string;
+    openaiConnection?: {
+      tested?: boolean;
+      connected?: boolean;
+      status?: number | null;
+      error?: string | null;
+    };
+    imageModel?: boolean;
+    imageModelName?: string;
+    storage?: boolean;
+    lastTechnicalError?: string | null;
+  };
 };
 
 function mapLog(row: SystemLogRow): SystemLog {
@@ -58,6 +96,7 @@ function mapLog(row: SystemLogRow): SystemLog {
 function Admin() {
   const { session } = useAuth();
   const [status, setStatus] = useState<AdminStatus | null>(null);
+  const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null);
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -92,10 +131,32 @@ function Admin() {
     setLoading(true);
     setError("");
     try {
-      const result = await callEdgeFunction<AdminStatus>("admin-status", session.access_token, {});
-      setStatus(result);
+      const [edgeResult, workerResult] = await Promise.allSettled([
+        callEdgeFunction<AdminStatus>("admin-status", session.access_token, {}),
+        fetch("/api/debug/health", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }).then(async (response) => {
+          const data = (await response.json().catch(() => ({}))) as WorkerHealth;
+          if (!response.ok)
+            throw new Error(data.error ?? `Health Vercel respondeu HTTP ${response.status}.`);
+          return data;
+        }),
+      ]);
+      if (edgeResult.status === "fulfilled") setStatus(edgeResult.value);
+      else throw edgeResult.reason;
+      if (workerResult.status === "fulfilled") setWorkerHealth(workerResult.value);
+      else
+        setWorkerHealth({
+          ok: false,
+          error:
+            workerResult.reason instanceof Error
+              ? workerResult.reason.message
+              : String(workerResult.reason),
+        });
       await loadLogs();
-      toast.success("Status real atualizado.");
+      if (workerResult.status === "rejected" || !workerResult.value.ok) {
+        toast.warning("Worker Vercel sem configuração própria; fallback Supabase Edge disponível.");
+      } else toast.success("Supabase, worker Vercel e OpenAI testados com sucesso.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao testar conexões reais.");
     } finally {
@@ -149,6 +210,80 @@ function Admin() {
           <TabsTrigger value="versao">Versão estável</TabsTrigger>
         </TabsList>
         <TabsContent value="chaves">
+          <div className="mb-5 rounded-3xl border border-border bg-card p-5 shadow-soft">
+            <h3 className="font-bold">Diagnóstico seguro do worker Vercel</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Os Secrets da Supabase Edge e as variáveis da Vercel são cofres separados. A chave
+              nunca é exibida. Se o worker Vercel não tiver configuração própria, o app usa
+              automaticamente o fallback compute-safe da Supabase Edge.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <ConnectionStatus
+                label="OpenAI nos Secrets da Supabase Edge"
+                status={status?.imageDiagnostic?.openaiApiKey ? "online" : "offline"}
+                detail={
+                  status?.imageDiagnostic?.openaiApiKey
+                    ? `Configurada via ${status.imageDiagnostic.openaiKeySource ?? "Supabase Edge"} • modelo: ${status.imageDiagnostic.imageModelName ?? "não informado"}`
+                    : "Não confirmada por admin-status. Faça deploy da função atualizada para testar o Secret da Edge."
+                }
+              />
+              <ConnectionStatus
+                label="Conexão OpenAI pela Supabase Edge"
+                status={status?.imageDiagnostic?.openaiConnection?.connected ? "online" : "offline"}
+                detail={
+                  status?.imageDiagnostic?.openaiConnection?.error ??
+                  (status?.imageDiagnostic?.openaiConnection?.tested
+                    ? `OpenAI respondeu HTTP ${status.imageDiagnostic.openaiConnection.status}.`
+                    : "Teste ainda não executado pela Edge Function admin-status atualizada.")
+                }
+              />
+              <ConnectionStatus
+                label="Fallback Supabase Edge compute-safe"
+                status={status?.edgeFunctions?.processNextGenerationJobSafe ? "online" : "offline"}
+                detail="Usado automaticamente quando o worker Vercel não possui acesso ao cofre da Edge."
+              />
+              <ConnectionStatus
+                label="Rota Node.js da Vercel (opcional)"
+                status={workerHealth?.worker?.configured ? "online" : "offline"}
+                detail={
+                  workerHealth?.error ?? `Runtime: ${workerHealth?.runtime ?? "não respondeu"}`
+                }
+              />
+              <ConnectionStatus
+                label="Fila generation_jobs"
+                status={workerHealth?.queue?.reachable ? "online" : "offline"}
+                detail={
+                  workerHealth?.queue?.lastJob?.error_message ??
+                  `Último status: ${workerHealth?.queue?.lastJob?.status ?? "sem job"}`
+                }
+              />
+              <ConnectionStatus
+                label="Chave OpenAI no worker Vercel (opcional)"
+                status={workerHealth?.credentials?.openai?.configured ? "online" : "offline"}
+                detail={`${workerHealth?.credentials?.openai?.masked ?? "não encontrada"} • origem: ${workerHealth?.credentials?.openai?.source ?? "desconhecida"}`}
+              />
+              <ConnectionStatus
+                label="Conexão OpenAI via Vercel (opcional)"
+                status={workerHealth?.credentials?.openai?.connected ? "online" : "offline"}
+                detail={
+                  workerHealth?.credentials?.openai?.error ??
+                  "GET /v1/models respondeu com sucesso."
+                }
+              />
+              <ConnectionStatus
+                label="Modelo disponível via Vercel (opcional)"
+                status={
+                  workerHealth?.credentials?.openai?.imageModelAvailable ? "online" : "offline"
+                }
+                detail={`Modelo configurado: ${workerHealth?.credentials?.openai?.imageModel ?? "não informado"}`}
+              />
+            </div>
+            {workerHealth?.worker?.configured && workerHealth?.error ? (
+              <div className="mt-4">
+                <ErrorState message={workerHealth.error} />
+              </div>
+            ) : null}
+          </div>
           <RuntimeSettingsPanel onSaved={testConnections} />
           <div className="grid gap-4 md:grid-cols-2">
             <ConnectionStatus

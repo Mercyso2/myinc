@@ -92,13 +92,18 @@ serve(async (req) => {
       profile = profileByEmail;
     }
 
-    // Regra pragmática atual: qualquer usuário logado e ativo pode salvar configurações.
-    if (!profile || profile.status === "disabled" || profile.status === "inactive") {
+    if (
+      !profile ||
+      profile.role !== "admin" ||
+      profile.status === "disabled" ||
+      profile.status === "inactive" ||
+      profile.status === "blocked"
+    ) {
       return json(
         req,
         {
           ok: false,
-          error: "Usuário sem permissão para salvar configurações.",
+          error: "Apenas administradores ativos podem salvar configurações técnicas.",
           user: { id: user.id, email: userEmail },
           profile,
         },

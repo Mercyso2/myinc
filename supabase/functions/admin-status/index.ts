@@ -125,12 +125,46 @@ serve(async (req) => {
     const { data: lastImageError } = await admin
       .from("system_logs")
       .select("technical_detail,created_at")
-      .eq("module", "imagem")
+      .in("module", ["imagem", "vercel-ai-worker-v3", "image-fast-safe", "carousel-page"])
       .eq("status", "erro")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     const publicStatus = publicRuntimeStatus(runtime);
+    const edgeOpenAiKey =
+      Deno.env.get("OPENAI_API_KEY")?.trim() || runtime.OPENAI_API_KEY?.trim() || "";
+    let edgeOpenAiConnection = {
+      tested: false,
+      connected: false,
+      status: null as number | null,
+      error: null as string | null,
+    };
+    if (edgeOpenAiKey) {
+      try {
+        const response = await fetch("https://api.openai.com/v1/models", {
+          headers: { Authorization: `Bearer ${edgeOpenAiKey}` },
+        });
+        const body = await response.json().catch(() => ({}));
+        edgeOpenAiConnection = {
+          tested: true,
+          connected: response.ok,
+          status: response.status,
+          error: response.ok
+            ? null
+            : String(body?.error?.message ?? body?.message ?? `HTTP ${response.status}`).slice(
+                0,
+                500,
+              ),
+        };
+      } catch (error) {
+        edgeOpenAiConnection = {
+          tested: true,
+          connected: false,
+          status: null,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
 
     return json(req, {
       ok: true,
@@ -145,7 +179,13 @@ serve(async (req) => {
       database: { connected, tables: tableStatus },
       storage: storageStatus,
       imageDiagnostic: {
-        openaiApiKey: Boolean(publicStatus.openaiApiKey),
+        openaiApiKey: Boolean(edgeOpenAiKey),
+        openaiKeySource: Deno.env.get("OPENAI_API_KEY")?.trim()
+          ? "supabase-edge-secret"
+          : runtime.OPENAI_API_KEY?.trim()
+            ? "runtime_secrets"
+            : "missing",
+        openaiConnection: edgeOpenAiConnection,
         textModel: Boolean(publicStatus.openaiTextModel),
         imageModel: Boolean(publicStatus.openaiImageModel),
         imageModelName: publicStatus.openaiImageModel,
@@ -172,6 +212,7 @@ serve(async (req) => {
         improvePost: true,
         metaTestConnection: true,
         processProductionQueue: true,
+        processNextGenerationJobSafe: true,
         processPublishQueue: true,
         publishMeta: true,
         renderTemplate: true,

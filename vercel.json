@@ -5,6 +5,18 @@
   "functions": {
     "api/worker/process.js": {
       "maxDuration": 60
+    },
+    "api/jobs/process-next.js": {
+      "maxDuration": 60
+    },
+    "api/jobs/retry.js": {
+      "maxDuration": 10
+    },
+    "api/debug/health.js": {
+      "maxDuration": 10
+    },
+    "api/edge/process-next.js": {
+      "maxDuration": 60
     }
   },
   "crons": [

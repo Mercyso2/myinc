@@ -47,7 +47,11 @@ export const Route = createFileRoute("/")({
 const HIDDEN_STATUSES = new Set(["arquivado", "excluido", "excluído", "deletado", "deleted"]);
 
 function isVisiblePost(row: PostRow) {
-  return !row.deleted_at && !row.archived_at && !HIDDEN_STATUSES.has(String(row.status ?? "").toLowerCase());
+  return (
+    !row.deleted_at &&
+    !row.archived_at &&
+    !HIDDEN_STATUSES.has(String(row.status ?? "").toLowerCase())
+  );
 }
 
 function isArchivedPost(row: PostRow) {
@@ -100,9 +104,12 @@ function Dashboard() {
     ["rascunho", "em_producao", "aguardando_revisao"].includes(p.status),
   ).length;
   const published = posts.filter((p) => p.status === "publicado").length;
-  const errors = posts.filter((p) => p.status === "erro" || p.status === "erro_ia").length;
+  const errors = posts.filter((p) => ["erro", "erro_ia"].includes(String(p.status))).length;
   const calendarPosts = useMemo(
-    () => posts.filter((p) => Boolean(p.scheduledAt) && !HIDDEN_STATUSES.has(String(p.status).toLowerCase())),
+    () =>
+      posts.filter(
+        (p) => Boolean(p.scheduledAt) && !HIDDEN_STATUSES.has(String(p.status).toLowerCase()),
+      ),
     [posts],
   );
 

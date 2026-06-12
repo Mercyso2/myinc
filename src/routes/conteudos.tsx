@@ -16,7 +16,6 @@ import {
   QueuePanel,
 } from "@/components/social-components";
 import { useAuth } from "@/lib/auth";
-import { callEdgeFunction } from "@/lib/supabase/client";
 import {
   approvePost,
   archivePost,
@@ -39,6 +38,10 @@ import {
   updatePostContent,
 } from "@/lib/repositories/post-repository";
 import { schedulePost } from "@/lib/repositories/publish-queue-repository";
+import {
+  processGenerationBatchSequentially,
+  retryPostGenerationJobs,
+} from "@/lib/repositories/generation-worker-repository";
 import { postRowToSocialPost } from "@/lib/social-mappers";
 import type { PostRow } from "@/lib/supabase/types";
 import type { SocialPost } from "@/lib/social-types";
@@ -80,22 +83,6 @@ function needsMedia(post: SocialPost) {
   return isOperationalPost(post) && !post.mediaUrl && status !== "publicado";
 }
 
-function triggerWorkerNow(
-  token: string,
-  payload: { passes?: number; stopWhenEmpty?: boolean } = {},
-) {
-  return callEdgeFunction<{
-    ok: true;
-    processed: number;
-    passes: number;
-    results: unknown[];
-    message?: string;
-  }>("trigger-worker-now", token, {
-    passes: payload.passes ?? 8,
-    stopWhenEmpty: payload.stopWhenEmpty ?? true,
-  });
-}
-
 function Conteudos() {
   const { session, profile } = useAuth();
   const [selected, setSelected] = useState<SocialPost | null>(null);
@@ -129,7 +116,9 @@ function Conteudos() {
         ),
       );
       setPosts(mapped);
-      setSelected((current) => (current ? (mapped.find((post) => post.id === current.id) ?? null) : null));
+      setSelected((current) =>
+        current ? (mapped.find((post) => post.id === current.id) ?? null) : null,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar posts locais.");
     } finally {
@@ -168,10 +157,16 @@ function Conteudos() {
     }
   }
 
-  const archived = posts.filter((post) => post.archivedAt || HIDDEN_STATUSES.has(String(post.status).toLowerCase()));
+  const archived = posts.filter(
+    (post) => post.archivedAt || HIDDEN_STATUSES.has(String(post.status).toLowerCase()),
+  );
   const activePosts = posts.filter(isOperationalPost);
-  const productionTargets = activePosts.filter((post) => PRODUCTION_STATUSES.has(String(post.status).toLowerCase()));
-  const readyForProduction = productionTargets.filter((post) => String(post.status).toLowerCase() !== "publicado");
+  const productionTargets = activePosts.filter((post) =>
+    PRODUCTION_STATUSES.has(String(post.status).toLowerCase()),
+  );
+  const readyForProduction = productionTargets.filter(
+    (post) => String(post.status).toLowerCase() !== "publicado",
+  );
   const waitingReview = activePosts.filter((post) => post.status === "aguardando_revisao");
   const imageTargets = activePosts.filter(needsMedia);
   const videoTargets = activePosts.filter((post) =>
@@ -181,14 +176,38 @@ function Conteudos() {
     post.format.toLowerCase().includes("carrossel"),
   );
 
-  async function processNow(passes = 10) {
+  async function processNow(passes = 120) {
     if (!session) return;
     setProcessingNow(true);
+    setError("");
     try {
-      const result = await triggerWorkerNow(session.access_token, { passes, stopWhenEmpty: true });
-      toast.success(result.message ?? `Worker acionado em ${result.passes} passada(s).`);
+      const results = await processGenerationBatchSequentially(session.access_token, {
+        maxSteps: passes,
+      });
+      const processed = results.filter((result) => result.processed > 0).length;
+      const failures = results.filter((result) => !result.ok);
+      const usedEdgeProxy = results.some((result) => result.processor === "supabase-edge-proxy");
+      const usedDirectEdge = results.some((result) => result.processor === "supabase-edge");
+      const processorLabel = usedEdgeProxy
+        ? "Supabase Edge via proxy seguro"
+        : usedDirectEdge
+          ? "fallback Supabase Edge compute-safe"
+          : "worker Vercel";
+      const message = !processed
+        ? "Não havia job pronto na fila. Envie posts/imagens para a fila antes de processar."
+        : failures.length
+          ? `${processed} job(s) processado(s) por ${processorLabel}, com ${failures.length} falha(s). Veja a aba Erros/logs para o motivo técnico.`
+          : `${processed} job(s) processado(s) por ${processorLabel}.`;
+
+      if (failures.length) toast.warning(message);
+      else toast.success(message);
       await load();
-      return result;
+      return { message };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Falha ao acionar o worker Vercel.";
+      setError(message);
+      toast.error(message);
+      throw err;
     } finally {
       setProcessingNow(false);
     }
@@ -211,12 +230,14 @@ function Conteudos() {
   async function produceAndProcessAll() {
     if (!session) return;
     if (readyForProduction.length) await produceAll();
-    return processNow(12);
+    return processNow();
   }
 
   async function generateAllImages() {
     if (!session) return;
-    const targets = imageTargets.length ? imageTargets : activePosts.filter((post) => !post.mediaUrl);
+    const targets = imageTargets.length
+      ? imageTargets
+      : activePosts.filter((post) => !post.mediaUrl);
     if (!targets.length) {
       toast.info("Todos os posts ativos já possuem mídia ou não precisam de imagem.");
       return { message: "Nenhum post ativo pendente de imagem." };
@@ -228,7 +249,9 @@ function Conteudos() {
       limit: targets.length,
     });
     return {
-      message: result.message ?? `${result.queued ?? targets.length} job(s) de imagem enviados para a fila externa.`,
+      message:
+        result.message ??
+        `${result.queued ?? targets.length} job(s) de imagem enviados para a fila externa.`,
     };
   }
 
@@ -245,7 +268,9 @@ function Conteudos() {
       limit: videoTargets.length,
     });
     return {
-      message: result.message ?? `${result.queued ?? videoTargets.length} job(s) de vídeo/Reels enviados para a fila externa.`,
+      message:
+        result.message ??
+        `${result.queued ?? videoTargets.length} job(s) de vídeo/Reels enviados para a fila externa.`,
     };
   }
 
@@ -271,7 +296,9 @@ function Conteudos() {
   const byStatus = useMemo(
     () => ({
       producao: activePosts.filter((post) =>
-        ["rascunho", "tema_aprovado", "em_producao", "em_fila", "ajuste_solicitado"].includes(post.status),
+        ["rascunho", "tema_aprovado", "em_producao", "em_fila", "ajuste_solicitado"].includes(
+          post.status,
+        ),
       ),
       revisao: activePosts.filter((post) => post.status === "aguardando_revisao"),
       aprovados: activePosts.filter((post) => ["aprovado", "agendado"].includes(post.status)),
@@ -292,12 +319,18 @@ function Conteudos() {
             runPostAction("Post aprovado.", () => approvePost(session!.access_token, post.id))
           }
           onRegenerate={() =>
-            runPostAction("Nova versão premium solicitada ao Cérebro IA.", () =>
-              generatePostContent(
-                session!.access_token,
-                post.id,
-                "Regerar com qualidade premium MYINC, usando Cérebro IA, biblioteca e formato correto.",
-              ),
+            runPostAction(
+              ["erro", "erro_ia", "failed"].includes(String(post.status).toLowerCase())
+                ? "Retry solicitado para os jobs com falha."
+                : "Nova versão premium solicitada ao Cérebro IA.",
+              () =>
+                ["erro", "erro_ia", "failed"].includes(String(post.status).toLowerCase())
+                  ? retryPostGenerationJobs(session!.access_token, post.id)
+                  : generatePostContent(
+                      session!.access_token,
+                      post.id,
+                      "Regerar com qualidade premium MYINC, usando Cérebro IA, biblioteca e formato correto.",
+                    ),
             )
           }
           onGenerateImage={() =>
@@ -334,8 +367,12 @@ function Conteudos() {
           <div className="flex flex-wrap gap-2">
             <Button
               className="rounded-full bg-gradient-primary text-primary-foreground shadow-glow"
-              disabled={loading || processingNow || (!readyForProduction.length && !activePosts.length)}
-              onClick={() => runPostAction("Produção criada e worker acionado.", produceAndProcessAll)}
+              disabled={
+                loading || processingNow || (!readyForProduction.length && !activePosts.length)
+              }
+              onClick={() =>
+                runPostAction("Produção criada e worker acionado.", produceAndProcessAll)
+              }
             >
               <Rocket className="h-4 w-4" /> Fazer tudo 100% automático
             </Button>
@@ -343,9 +380,7 @@ function Conteudos() {
               variant="outline"
               className="rounded-full"
               disabled={loading || processingNow || !readyForProduction.length}
-              onClick={() =>
-                runPostAction("Fila de produção criada.", produceAll)
-              }
+              onClick={() => runPostAction("Fila de produção criada.", produceAll)}
             >
               <Sparkles className="h-4 w-4" /> Enviar todos para fila
             </Button>
@@ -353,7 +388,7 @@ function Conteudos() {
               variant="outline"
               className="rounded-full border-primary/50 text-primary"
               disabled={loading || processingNow}
-              onClick={() => void processNow(12)}
+              onClick={() => void processNow().catch(() => undefined)}
             >
               <Play className="h-4 w-4" /> {processingNow ? "Processando..." : "Processar agora"}
             </Button>
@@ -369,7 +404,9 @@ function Conteudos() {
               variant="outline"
               className="rounded-full"
               disabled={loading || processingNow || !videoTargets.length}
-              onClick={() => runPostAction("Jobs de vídeo/Reels enviados para fila.", generateAllVideos)}
+              onClick={() =>
+                runPostAction("Jobs de vídeo/Reels enviados para fila.", generateAllVideos)
+              }
             >
               <Wand2 className="h-4 w-4" /> Gerar vídeos/Reels
             </Button>
@@ -416,9 +453,7 @@ function Conteudos() {
           </div>
         }
       />
-      {loading ? (
-        <LoadingState label="Sincronizando posts, fila, mídia e revisão..." />
-      ) : null}
+      {loading ? <LoadingState label="Sincronizando posts, fila, mídia e revisão..." /> : null}
       {processingNow ? (
         <LoadingState label="Processando fila externa sem travar a produção em massa..." />
       ) : null}
@@ -559,10 +594,17 @@ function Conteudos() {
               </div>
               <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_1fr]">
                 <div className="space-y-4">
-                  <PromptViewer post={post} />
+                  <PromptViewer
+                    prompt={
+                      post.masterPrompt ||
+                      post.imagePrompt ||
+                      post.creativeBrief ||
+                      "Prompt ainda não gerado."
+                    }
+                  />
                   <HumanCommentsPanel
-                    comments={post.comments}
-                    onAdd={(comment) =>
+                    comments={post.humanComments}
+                    onAddComment={(comment) =>
                       runPostAction("Comentário salvo.", () =>
                         contentCommentRepository.create(session!.access_token, {
                           post_id: post.id,
@@ -613,7 +655,11 @@ function Conteudos() {
                     variant="outline"
                     onClick={() =>
                       runPostAction("Ajustes solicitados.", () =>
-                        requestPostChanges(session!.access_token, post.id, "Ajuste solicitado na revisão humana."),
+                        requestPostChanges(
+                          session!.access_token,
+                          post.id,
+                          "Ajuste solicitado na revisão humana.",
+                        ),
                       )
                     }
                   >
@@ -624,7 +670,11 @@ function Conteudos() {
                     variant="outline"
                     onClick={() =>
                       runPostAction("Post agendado.", () =>
-                        schedulePost(session!.access_token, post as unknown as PostRow, post.scheduledAt),
+                        schedulePost(
+                          session!.access_token,
+                          post as unknown as PostRow,
+                          post.scheduledAt,
+                        ),
                       )
                     }
                   >
@@ -645,7 +695,9 @@ function Conteudos() {
                     className="w-full justify-start rounded-xl"
                     variant="destructive"
                     onClick={() =>
-                      runPostAction("Post arquivado.", () => archivePost(session!.access_token, post.id))
+                      runPostAction("Post arquivado.", () =>
+                        archivePost(session!.access_token, post.id),
+                      )
                     }
                   >
                     Arquivar
@@ -684,7 +736,9 @@ function Conteudos() {
           )
         }
         onPublish={() =>
-          runPostAction("Publicação solicitada.", () => publishPostNow(session!.access_token, selected!.id))
+          runPostAction("Publicação solicitada.", () =>
+            publishPostNow(session!.access_token, selected!.id),
+          )
         }
         onRegenerate={(feedback) =>
           runPostAction("Nova versão solicitada.", () =>

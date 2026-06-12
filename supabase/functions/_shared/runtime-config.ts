@@ -60,14 +60,23 @@ export function cfg(config: RuntimeConfig, key: string, fallback = "") {
 }
 
 export function getCorsHeaders(req: Request, runtime: RuntimeConfig = {}) {
-  const configured = cfg(runtime, "CORS_ALLOW_ORIGIN", "http://localhost:5173");
-  const origin = req.headers.get("Origin") ?? "";
+  const configured = cfg(runtime, "CORS_ALLOW_ORIGIN", "*");
+  const origin = req.headers.get("Origin")?.trim() ?? "";
   const allowed = configured
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+  const configuredAllowsOrigin = allowed.includes("*") || allowed.includes(origin);
+
+  // Edge Functions still validate JWT/permissions. Reflecting the browser origin prevents a stale
+  // CORS_ALLOW_ORIGIN secret from blocking authenticated production calls after a domain change.
+  const responseOrigin =
+    origin && (configuredAllowsOrigin || origin.startsWith("https://"))
+      ? origin
+      : allowed[0] || "*";
+
   return {
-    "Access-Control-Allow-Origin": allowed.includes(origin) ? origin : allowed[0],
+    "Access-Control-Allow-Origin": responseOrigin,
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
       req.headers.get("Access-Control-Request-Headers") ||
@@ -133,7 +142,13 @@ export function boolCfg(config: RuntimeConfig, key: string, fallback = false) {
   return ["1", "true", "yes", "sim", "on", "ativo", "enabled"].includes(value.toLowerCase());
 }
 
-export function numberCfg(config: RuntimeConfig, key: string, fallback: number, min?: number, max?: number) {
+export function numberCfg(
+  config: RuntimeConfig,
+  key: string,
+  fallback: number,
+  min?: number,
+  max?: number,
+) {
   const raw = Number(cfg(config, key, String(fallback)));
   const value = Number.isFinite(raw) ? raw : fallback;
   const withMin = min === undefined ? value : Math.max(min, value);
