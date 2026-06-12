@@ -31,6 +31,30 @@ export const Route = createFileRoute("/admin")({
   component: Admin,
 });
 
+type WorkerHealth = {
+  ok: boolean;
+  error?: string;
+  runtime?: string;
+  worker?: { deployed?: boolean; oneJobPerRequest?: boolean };
+  queue?: {
+    reachable?: boolean;
+    lastJob?: { status?: string; error_message?: string | null } | null;
+  };
+  credentials?: {
+    openai?: {
+      configured?: boolean;
+      connected?: boolean;
+      imageModel?: string;
+      imageModelAvailable?: boolean;
+      source?: string;
+      masked?: string | null;
+      error?: string | null;
+      updatedAt?: string | null;
+    };
+    metaConfigured?: boolean;
+  };
+};
+
 type AdminStatus = {
   ok: boolean;
   admin?: boolean;
@@ -58,6 +82,7 @@ function mapLog(row: SystemLogRow): SystemLog {
 function Admin() {
   const { session } = useAuth();
   const [status, setStatus] = useState<AdminStatus | null>(null);
+  const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null);
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -92,10 +117,32 @@ function Admin() {
     setLoading(true);
     setError("");
     try {
-      const result = await callEdgeFunction<AdminStatus>("admin-status", session.access_token, {});
-      setStatus(result);
+      const [edgeResult, workerResult] = await Promise.allSettled([
+        callEdgeFunction<AdminStatus>("admin-status", session.access_token, {}),
+        fetch("/api/debug/health", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }).then(async (response) => {
+          const data = (await response.json().catch(() => ({}))) as WorkerHealth;
+          if (!response.ok)
+            throw new Error(data.error ?? `Health Vercel respondeu HTTP ${response.status}.`);
+          return data;
+        }),
+      ]);
+      if (edgeResult.status === "fulfilled") setStatus(edgeResult.value);
+      else throw edgeResult.reason;
+      if (workerResult.status === "fulfilled") setWorkerHealth(workerResult.value);
+      else
+        setWorkerHealth({
+          ok: false,
+          error:
+            workerResult.reason instanceof Error
+              ? workerResult.reason.message
+              : String(workerResult.reason),
+        });
       await loadLogs();
-      toast.success("Status real atualizado.");
+      if (workerResult.status === "rejected" || !workerResult.value.ok) {
+        toast.warning("Supabase respondeu, mas o worker Vercel/OpenAI precisa de atenção.");
+      } else toast.success("Supabase, worker Vercel e OpenAI testados com sucesso.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao testar conexões reais.");
     } finally {
@@ -149,6 +196,56 @@ function Admin() {
           <TabsTrigger value="versao">Versão estável</TabsTrigger>
         </TabsList>
         <TabsContent value="chaves">
+          <div className="mb-5 rounded-3xl border border-border bg-card p-5 shadow-soft">
+            <h3 className="font-bold">Diagnóstico seguro do worker Vercel</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              A chave nunca é exibida. O identificador mascarado abaixo confirma qual credencial o
+              backend encontrou e o teste chama a OpenAI diretamente no servidor, sem gerar custo de
+              imagem.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <ConnectionStatus
+                label="Rota Node.js da Vercel"
+                status={workerHealth?.worker?.deployed ? "online" : "offline"}
+                detail={
+                  workerHealth?.error ?? `Runtime: ${workerHealth?.runtime ?? "não respondeu"}`
+                }
+              />
+              <ConnectionStatus
+                label="Fila generation_jobs"
+                status={workerHealth?.queue?.reachable ? "online" : "offline"}
+                detail={
+                  workerHealth?.queue?.lastJob?.error_message ??
+                  `Último status: ${workerHealth?.queue?.lastJob?.status ?? "sem job"}`
+                }
+              />
+              <ConnectionStatus
+                label="Chave OpenAI server-side"
+                status={workerHealth?.credentials?.openai?.configured ? "online" : "offline"}
+                detail={`${workerHealth?.credentials?.openai?.masked ?? "não encontrada"} • origem: ${workerHealth?.credentials?.openai?.source ?? "desconhecida"}`}
+              />
+              <ConnectionStatus
+                label="Conexão real OpenAI"
+                status={workerHealth?.credentials?.openai?.connected ? "online" : "offline"}
+                detail={
+                  workerHealth?.credentials?.openai?.error ??
+                  "GET /v1/models respondeu com sucesso."
+                }
+              />
+              <ConnectionStatus
+                label="Modelo de imagem disponível"
+                status={
+                  workerHealth?.credentials?.openai?.imageModelAvailable ? "online" : "offline"
+                }
+                detail={`Modelo configurado: ${workerHealth?.credentials?.openai?.imageModel ?? "não informado"}`}
+              />
+            </div>
+            {workerHealth?.error ? (
+              <div className="mt-4">
+                <ErrorState message={workerHealth.error} />
+              </div>
+            ) : null}
+          </div>
           <RuntimeSettingsPanel onSaved={testConnections} />
           <div className="grid gap-4 md:grid-cols-2">
             <ConnectionStatus

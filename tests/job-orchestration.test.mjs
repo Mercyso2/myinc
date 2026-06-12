@@ -29,8 +29,9 @@ test("secrets stay server-side and health endpoint returns booleans only", async
     read("api/debug/health.js"),
   ]);
   assert.doesNotMatch(files.join("\n"), /NEXT_PUBLIC_(OPENAI|META|SUPABASE_SERVICE)/);
-  assert.match(files[1], /openaiConfigured:/);
+  assert.match(files[1], /masked: maskSecret\(openAiKey\)/);
   assert.doesNotMatch(files[1], /OPENAI_API_KEY:\s*value/);
+  assert.doesNotMatch(files[1], /openAiKey,\s*$/m);
 });
 
 test("Meta publication asset update has one valid table selector", async () => {
@@ -56,4 +57,15 @@ test("media actions enqueue media directly without a higher-priority content job
   ]);
   assert.match(posts, /includeContent: false/);
   assert.match(queue, /if \(payload\.includeContent !== false\)/);
+});
+
+test("technical diagnostics mask secrets and require an active admin", async () => {
+  const [health, saveSettings] = await Promise.all([
+    read("api/debug/health.js"),
+    read("supabase/functions/admin-save-settings/index.ts"),
+  ]);
+  assert.match(health, /maskSecret/);
+  assert.match(health, /profile\.role !== "admin"/);
+  assert.doesNotMatch(health, /openAiKey,\s*$/m);
+  assert.match(saveSettings, /profile\.role !== "admin"/);
 });

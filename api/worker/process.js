@@ -109,7 +109,7 @@ async function log(row) {
 }
 
 async function loadRuntimeConfig() {
-  const rows = await rest("runtime_secrets?select=key,value").catch(() => []);
+  const rows = await rest("runtime_secrets?select=key,value");
   runtimeConfig = Object.fromEntries(
     (Array.isArray(rows) ? rows : [])
       .filter((row) => row?.key && row?.value)

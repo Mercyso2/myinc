@@ -125,7 +125,7 @@ serve(async (req) => {
     const { data: lastImageError } = await admin
       .from("system_logs")
       .select("technical_detail,created_at")
-      .eq("module", "imagem")
+      .in("module", ["imagem", "vercel-ai-worker-v3", "image-fast-safe", "carousel-page"])
       .eq("status", "erro")
       .order("created_at", { ascending: false })
       .limit(1)
