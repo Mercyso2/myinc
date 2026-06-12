@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { CheckCheck, ImagePlus, RefreshCw, Rocket, Sparkles, Wand2 } from "lucide-react";
+import { CheckCheck, ImagePlus, Play, RefreshCw, Rocket, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -16,10 +16,12 @@ import {
   QueuePanel,
 } from "@/components/social-components";
 import { useAuth } from "@/lib/auth";
+import { callEdgeFunction } from "@/lib/supabase/client";
 import {
   approvePost,
   archivePost,
   contentCommentRepository,
+  createLocalBackup,
   createProductionBatch,
   generateImagesBatch,
   generatePostContent,
@@ -30,12 +32,10 @@ import {
   reviewPostQuality,
   renderPostTemplate,
   renderTemplatesBatch,
-  createLocalBackup,
   postRepository,
   publishPostNow,
   requestPostChanges,
   restorePost,
-  runAutonomousProduction,
   updatePostContent,
 } from "@/lib/repositories/post-repository";
 import { schedulePost } from "@/lib/repositories/publish-queue-repository";
@@ -56,11 +56,52 @@ export const Route = createFileRoute("/conteudos")({
   component: Conteudos,
 });
 
+const HIDDEN_STATUSES = new Set(["arquivado", "excluido", "excluído", "deletado", "deleted"]);
+const PRODUCTION_STATUSES = new Set([
+  "rascunho",
+  "tema_aprovado",
+  "em_producao",
+  "em_fila",
+  "ajuste_solicitado",
+  "erro",
+  "erro_ia",
+  "aguardando_revisao",
+  "aprovado",
+  "agendado",
+]);
+
+function isOperationalPost(post: SocialPost) {
+  const status = String(post.status ?? "").toLowerCase();
+  return !post.archivedAt && !HIDDEN_STATUSES.has(status);
+}
+
+function needsMedia(post: SocialPost) {
+  const status = String(post.status ?? "").toLowerCase();
+  return isOperationalPost(post) && !post.mediaUrl && status !== "publicado";
+}
+
+function triggerWorkerNow(
+  token: string,
+  payload: { passes?: number; stopWhenEmpty?: boolean } = {},
+) {
+  return callEdgeFunction<{
+    ok: true;
+    processed: number;
+    passes: number;
+    results: unknown[];
+    message?: string;
+  }>("trigger-worker-now", token, {
+    passes: payload.passes ?? 8,
+    stopWhenEmpty: payload.stopWhenEmpty ?? true,
+  });
+}
+
 function Conteudos() {
   const { session, profile } = useAuth();
   const [selected, setSelected] = useState<SocialPost | null>(null);
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [loading, setLoading] = useState(false);
+  const [processingNow, setProcessingNow] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -88,6 +129,7 @@ function Conteudos() {
         ),
       );
       setPosts(mapped);
+      setSelected((current) => (current ? (mapped.find((post) => post.id === current.id) ?? null) : null));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar posts locais.");
     } finally {
@@ -119,68 +161,74 @@ function Conteudos() {
       if (options.closeModal) setSelected(null);
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Acao do estudio falhou.");
+      toast.error(err instanceof Error ? err.message : "Ação do estúdio falhou.");
       setError(err instanceof Error ? err.message : "Ação do estúdio falhou.");
     } finally {
       setLoading(false);
     }
   }
 
-  const archived = posts.filter((post) => post.status === "arquivado" || post.archivedAt);
-  const activePosts = posts.filter((post) => post.status !== "arquivado" && !post.archivedAt);
-  const readyForProduction = activePosts.filter((post) =>
-    ["tema_aprovado", "ajuste_solicitado", "erro", "rascunho"].includes(post.status),
-  );
+  const archived = posts.filter((post) => post.archivedAt || HIDDEN_STATUSES.has(String(post.status).toLowerCase()));
+  const activePosts = posts.filter(isOperationalPost);
+  const productionTargets = activePosts.filter((post) => PRODUCTION_STATUSES.has(String(post.status).toLowerCase()));
+  const readyForProduction = productionTargets.filter((post) => String(post.status).toLowerCase() !== "publicado");
   const waitingReview = activePosts.filter((post) => post.status === "aguardando_revisao");
-  const imageTargets = activePosts.filter(
-    (post) =>
-      !post.mediaUrl &&
-      ["aguardando_revisao", "aprovado", "agendado", "tema_aprovado", "ajuste_solicitado"].includes(
-        post.status,
-      ),
-  );
+  const imageTargets = activePosts.filter(needsMedia);
   const videoTargets = activePosts.filter((post) =>
-    ["Reels", "Vídeo", "Video"].some((term) =>
-      post.format.toLowerCase().includes(term.toLowerCase()),
-    ),
+    ["reels", "vídeo", "video"].some((term) => post.format.toLowerCase().includes(term)),
   );
   const carouselTargets = activePosts.filter((post) =>
     post.format.toLowerCase().includes("carrossel"),
   );
 
+  async function processNow(passes = 10) {
+    if (!session) return;
+    setProcessingNow(true);
+    try {
+      const result = await triggerWorkerNow(session.access_token, { passes, stopWhenEmpty: true });
+      toast.success(result.message ?? `Worker acionado em ${result.passes} passada(s).`);
+      await load();
+      return result;
+    } finally {
+      setProcessingNow(false);
+    }
+  }
+
   async function produceAll() {
     if (!session || !readyForProduction.length) return;
     const brandId = profile?.brand_id ?? readyForProduction[0]?.brandId;
-    await createProductionBatch(session.access_token, {
+    const result = await createProductionBatch(session.access_token, {
       brandId,
       postIds: readyForProduction.map((post) => post.id),
       instruction:
         "Produção em massa definitiva: usar memória da marca, Cérebro IA, biblioteca, formato, carrossel, vídeo/reels e critérios premium MYINC.",
     });
+    return {
+      message: `${result.queued ?? readyForProduction.length} job(s) criados na fila externa. Use Processar agora para executar sem travar a tela.`,
+    };
+  }
+
+  async function produceAndProcessAll() {
+    if (!session) return;
+    if (readyForProduction.length) await produceAll();
+    return processNow(12);
   }
 
   async function generateAllImages() {
     if (!session) return;
-    const targets = imageTargets.length
-      ? imageTargets
-      : activePosts.filter((post) => !post.mediaUrl);
+    const targets = imageTargets.length ? imageTargets : activePosts.filter((post) => !post.mediaUrl);
     if (!targets.length) {
-      toast.info("Todos os posts ativos já possuem mídia.");
-      return;
+      toast.info("Todos os posts ativos já possuem mídia ou não precisam de imagem.");
+      return { message: "Nenhum post ativo pendente de imagem." };
     }
     const result = await generateImagesBatch(session.access_token, {
       brandId: profile?.brand_id ?? targets[0]?.brandId,
       postIds: targets.map((post) => post.id),
       onlyMissing: true,
-      limit: 5,
+      limit: targets.length,
     });
-    if (!result.generated) throw new Error("Nenhuma imagem foi gerada pela fila.");
     return {
-      message: `${result.generated} imagem(ns) gerada(s).${
-        result.remaining
-          ? ` Ainda restam ${result.remaining}; clique novamente para continuar.`
-          : ""
-      }`,
+      message: result.message ?? `${result.queued ?? targets.length} job(s) de imagem enviados para a fila externa.`,
     };
   }
 
@@ -188,21 +236,16 @@ function Conteudos() {
     if (!session) return;
     if (!videoTargets.length) {
       toast.info("Nenhum Reels/Vídeo ativo para gerar.");
-      return;
+      return { message: "Nenhum Reels/Vídeo ativo para gerar." };
     }
     const result = await generateVideosBatch(session.access_token, {
       brandId: profile?.brand_id ?? videoTargets[0]?.brandId,
       postIds: videoTargets.map((post) => post.id),
       force: true,
-      limit: 2,
+      limit: videoTargets.length,
     });
-    if (!result.generated) throw new Error("Nenhum vÃ­deo/Reels foi gerado pela fila.");
     return {
-      message: `${result.generated} vÃ­deo(s)/Reels processado(s).${
-        result.remaining
-          ? ` Ainda restam ${result.remaining}; clique novamente para continuar.`
-          : ""
-      }`,
+      message: result.message ?? `${result.queued ?? videoTargets.length} job(s) de vídeo/Reels enviados para a fila externa.`,
     };
   }
 
@@ -211,41 +254,29 @@ function Conteudos() {
     const targets = activePosts.filter((post) => post.mediaUrl || post.caption || post.headline);
     if (!targets.length) {
       toast.info("Nenhum post ativo para aplicar template.");
-      return;
+      return { message: "Nenhum post ativo para aplicar template." };
     }
     await renderTemplatesBatch(session.access_token, {
       brandId: profile?.brand_id ?? targets[0]?.brandId,
       postIds: targets.map((post) => post.id),
     });
+    return { message: `${targets.length} template(s) marcado(s) para revisão visual.` };
   }
 
   async function backupNow() {
     if (!session) return;
-    await createLocalBackup(session.access_token, `studio-${new Date().toISOString()}`);
-  }
-
-  async function runAuto100() {
-    if (!session) return;
-    await runAutonomousProduction(session.access_token, {
-      brandId: profile?.brand_id ?? activePosts[0]?.brandId,
-      publish: true,
-      approve: true,
-      schedule: true,
-      generateImages: true,
-      applyTemplates: true,
-      reviewQuality: true,
-    });
+    return createLocalBackup(session.access_token, `studio-${new Date().toISOString()}`);
   }
 
   const byStatus = useMemo(
     () => ({
       producao: activePosts.filter((post) =>
-        ["rascunho", "tema_aprovado", "em_producao", "ajuste_solicitado"].includes(post.status),
+        ["rascunho", "tema_aprovado", "em_producao", "em_fila", "ajuste_solicitado"].includes(post.status),
       ),
       revisao: activePosts.filter((post) => post.status === "aguardando_revisao"),
       aprovados: activePosts.filter((post) => ["aprovado", "agendado"].includes(post.status)),
       publicados: activePosts.filter((post) => post.status === "publicado"),
-      erros: activePosts.filter((post) => post.status === "erro"),
+      erros: activePosts.filter((post) => ["erro", "erro_ia", "failed"].includes(post.status)),
     }),
     [activePosts],
   );
@@ -270,7 +301,7 @@ function Conteudos() {
             )
           }
           onGenerateImage={() =>
-            runPostAction("Mídia gerada pela fila de imagem.", () =>
+            runPostAction("Mídia enviada para a fila externa.", () =>
               generatePostImage(session!.access_token, post.id),
             )
           }
@@ -298,48 +329,56 @@ function Conteudos() {
     <div className="mx-auto max-w-7xl space-y-7">
       <PageHeader
         title="Estúdio Criativo / Revisão Humana"
-        description="Produção em massa local com IA, Cérebro MYINC, carrossel, vídeo/reels, imagens em fila, aprovação e publicação."
+        description="Produção em massa com fila externa, worker Vercel, Cérebro MYINC, carrossel, vídeo/reels, imagens, aprovação e publicação."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
               className="rounded-full bg-gradient-primary text-primary-foreground shadow-glow"
-              disabled={loading || (!readyForProduction.length && !activePosts.length)}
-              onClick={() => runPostAction("Automação 100% executada.", runAuto100)}
+              disabled={loading || processingNow || (!readyForProduction.length && !activePosts.length)}
+              onClick={() => runPostAction("Produção criada e worker acionado.", produceAndProcessAll)}
             >
               <Rocket className="h-4 w-4" /> Fazer tudo 100% automático
             </Button>
             <Button
               variant="outline"
               className="rounded-full"
-              disabled={loading || !readyForProduction.length}
+              disabled={loading || processingNow || !readyForProduction.length}
               onClick={() =>
-                runPostAction("Fila de produção criada/processada para aprovados.", produceAll)
+                runPostAction("Fila de produção criada.", produceAll)
               }
             >
-              <Sparkles className="h-4 w-4" /> Produzir todos
+              <Sparkles className="h-4 w-4" /> Enviar todos para fila
+            </Button>
+            <Button
+              variant="outline"
+              className="rounded-full border-primary/50 text-primary"
+              disabled={loading || processingNow}
+              onClick={() => void processNow(12)}
+            >
+              <Play className="h-4 w-4" /> {processingNow ? "Processando..." : "Processar agora"}
             </Button>
             <Button
               variant="outline"
               className="rounded-full"
-              disabled={loading || !activePosts.length}
-              onClick={() => runPostAction("Fila de imagens processada.", generateAllImages)}
+              disabled={loading || processingNow || !activePosts.length}
+              onClick={() => runPostAction("Jobs de imagem enviados para fila.", generateAllImages)}
             >
               <ImagePlus className="h-4 w-4" /> Gerar imagens em todos
             </Button>
             <Button
               variant="outline"
               className="rounded-full"
-              disabled={loading || !videoTargets.length}
-              onClick={() => runPostAction("Fila de vídeos/Reels processada.", generateAllVideos)}
+              disabled={loading || processingNow || !videoTargets.length}
+              onClick={() => runPostAction("Jobs de vídeo/Reels enviados para fila.", generateAllVideos)}
             >
               <Wand2 className="h-4 w-4" /> Gerar vídeos/Reels
             </Button>
             <Button
               variant="outline"
               className="rounded-full"
-              disabled={loading || !activePosts.length}
+              disabled={loading || processingNow || !activePosts.length}
               onClick={() =>
-                runPostAction("Templates MYINC aplicados em todos.", renderAllTemplates)
+                runPostAction("Templates MYINC marcados para revisão.", renderAllTemplates)
               }
             >
               <Sparkles className="h-4 w-4" /> Aplicar template em todos
@@ -347,15 +386,15 @@ function Conteudos() {
             <Button
               variant="outline"
               className="rounded-full"
-              disabled={loading}
-              onClick={() => runPostAction("Backup local criado.", backupNow)}
+              disabled={loading || processingNow}
+              onClick={() => runPostAction("Backup lógico criado.", backupNow)}
             >
               <CheckCheck className="h-4 w-4" /> Backup agora
             </Button>
             <Button
               variant="outline"
               className="rounded-full"
-              disabled={loading || !waitingReview.length}
+              disabled={loading || processingNow || !waitingReview.length}
               onClick={() =>
                 runPostAction("Posts aguardando revisão aprovados.", () =>
                   Promise.all(
@@ -369,7 +408,7 @@ function Conteudos() {
             <Button
               variant="outline"
               className="rounded-full"
-              disabled={loading}
+              disabled={loading || processingNow}
               onClick={() => void load()}
             >
               <RefreshCw className="h-4 w-4" /> Atualizar
@@ -378,7 +417,10 @@ function Conteudos() {
         }
       />
       {loading ? (
-        <LoadingState label="Executando fila local com IA e salvando resultados..." />
+        <LoadingState label="Sincronizando posts, fila, mídia e revisão..." />
+      ) : null}
+      {processingNow ? (
+        <LoadingState label="Processando fila externa sem travar a produção em massa..." />
       ) : null}
       {error ? <ErrorState message={error} /> : null}
       <QueuePanel posts={posts} />
@@ -387,23 +429,22 @@ function Conteudos() {
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Carrosséis</p>
           <h3 className="mt-2 text-2xl font-bold">{carouselTargets.length}</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Prévia com setas laterais, páginas IA e mídia por slide.
+            Jobs por página, mídia por slide e revisão antes da publicação.
           </p>
         </div>
         <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Reels/Vídeos</p>
           <h3 className="mt-2 text-2xl font-bold">{videoTargets.length}</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Roteiro, capa e storyboard local gerados pelo Cérebro IA.
+            Geração via fila externa e worker Vercel com polling.
           </p>
         </div>
         <div className="rounded-3xl border border-border bg-sidebar p-5 text-sidebar-foreground shadow-elevated">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-sidebar-primary">
-            Sugestão de produção
+            Fluxo oficial
           </p>
           <p className="mt-2 text-sm text-sidebar-foreground/70">
-            Use Produzir todos → Gerar imagens/vídeos → revisar cards → aprovar/agendar. Evite
-            publicar sem revisão se for campanha real.
+            Enviar para fila → Processar agora → Atualizar → revisar → aprovar/agendar/publicar.
           </p>
         </div>
       </div>
@@ -481,7 +522,7 @@ function Conteudos() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={loading}
+                    disabled={loading || processingNow}
                     onClick={() =>
                       runPostAction("Copy/design regenerados com IA.", () =>
                         generatePostContent(session!.access_token, post.id),
@@ -493,19 +534,19 @@ function Conteudos() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={loading}
+                    disabled={loading || processingNow}
                     onClick={() =>
-                      runPostAction("Mídia gerada no storage local.", () =>
+                      runPostAction("Mídia enviada para fila externa.", () =>
                         generatePostImage(session!.access_token, post.id),
                       )
                     }
                   >
-                    <ImagePlus className="h-4 w-4" /> Imagem
+                    <ImagePlus className="h-4 w-4" /> Enviar mídia
                   </Button>
                   <Button
                     size="sm"
                     className="bg-gradient-primary text-primary-foreground"
-                    disabled={loading}
+                    disabled={loading || processingNow}
                     onClick={() =>
                       runPostAction("Post aprovado.", () =>
                         approvePost(session!.access_token, post.id),
@@ -518,30 +559,98 @@ function Conteudos() {
               </div>
               <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_1fr]">
                 <div className="space-y-4">
-                  <p className="rounded-2xl bg-background p-4 text-sm leading-relaxed">
-                    {post.caption || "Copy ainda não gerada."}
-                  </p>
-                  <p className="rounded-2xl bg-background p-4 text-sm">
-                    <b>Hashtags:</b> {post.hashtags.join(" ") || "—"}
-                  </p>
-                  <p className="rounded-2xl bg-background p-4 text-sm">
-                    <b>Briefing:</b> {post.creativeBrief || "—"}
-                  </p>
-                  <PromptViewer prompt={post.masterPrompt || "Prompt mestre ainda não gerado."} />
+                  <PromptViewer post={post} />
+                  <HumanCommentsPanel
+                    comments={post.comments}
+                    onAdd={(comment) =>
+                      runPostAction("Comentário salvo.", () =>
+                        contentCommentRepository.create(session!.access_token, {
+                          post_id: post.id,
+                          comment,
+                          status: "aberto",
+                          feedback_for_ai: true,
+                        }),
+                      )
+                    }
+                  />
                 </div>
-                <HumanCommentsPanel
-                  comments={post.humanComments}
-                  onAddComment={(comment) =>
-                    runPostAction("Comentário salvo localmente.", () =>
-                      contentCommentRepository.create(session!.access_token, {
-                        post_id: post.id,
-                        comment,
-                        status: "aberto",
-                        feedback_for_ai: true,
-                      }),
-                    )
-                  }
-                />
+                <div className="space-y-3 rounded-2xl border border-border bg-background/60 p-4">
+                  <Button
+                    className="w-full justify-start rounded-xl"
+                    variant="outline"
+                    onClick={() =>
+                      runPostAction("Template MYINC marcado para revisão.", () =>
+                        renderPostTemplate(session!.access_token, post.id),
+                      )
+                    }
+                  >
+                    Aplicar template MYINC
+                  </Button>
+                  <Button
+                    className="w-full justify-start rounded-xl"
+                    variant="outline"
+                    onClick={() =>
+                      runPostAction("Revisão de qualidade registrada.", () =>
+                        reviewPostQuality(session!.access_token, post.id),
+                      )
+                    }
+                  >
+                    Revisar qualidade
+                  </Button>
+                  <Button
+                    className="w-full justify-start rounded-xl"
+                    variant="outline"
+                    onClick={() =>
+                      runPostAction("Versão melhorada solicitada.", () =>
+                        improvePost(session!.access_token, post.id, "premium", false),
+                      )
+                    }
+                  >
+                    Melhorar premium
+                  </Button>
+                  <Button
+                    className="w-full justify-start rounded-xl"
+                    variant="outline"
+                    onClick={() =>
+                      runPostAction("Ajustes solicitados.", () =>
+                        requestPostChanges(session!.access_token, post.id, "Ajuste solicitado na revisão humana."),
+                      )
+                    }
+                  >
+                    Solicitar ajuste
+                  </Button>
+                  <Button
+                    className="w-full justify-start rounded-xl"
+                    variant="outline"
+                    onClick={() =>
+                      runPostAction("Post agendado.", () =>
+                        schedulePost(session!.access_token, post as unknown as PostRow, post.scheduledAt),
+                      )
+                    }
+                  >
+                    Agendar
+                  </Button>
+                  <Button
+                    className="w-full justify-start rounded-xl"
+                    variant="outline"
+                    onClick={() =>
+                      runPostAction("Publicação solicitada.", () =>
+                        publishPostNow(session!.access_token, post.id),
+                      )
+                    }
+                  >
+                    Publicar
+                  </Button>
+                  <Button
+                    className="w-full justify-start rounded-xl"
+                    variant="destructive"
+                    onClick={() =>
+                      runPostAction("Post arquivado.", () => archivePost(session!.access_token, post.id))
+                    }
+                  >
+                    Arquivar
+                  </Button>
+                </div>
               </div>
             </div>
           ))}
@@ -552,72 +661,39 @@ function Conteudos() {
         open={!!selected}
         onClose={() => setSelected(null)}
         onSave={(patch) =>
-          runPostAction(
-            "Edição salva no post.",
-            () =>
-              updatePostContent(session!.access_token, selected!.id, {
-                title: patch.title,
-                caption: patch.caption,
-                hashtags: patch.hashtags,
-                cta: patch.cta,
-                image_prompt: patch.imagePrompt,
-                creative_brief: patch.creativeBrief,
-                scheduled_at: patch.scheduledAt,
-              } as Partial<PostRow>),
-            { closeModal: true },
+          runPostAction("Edição salva.", () =>
+            updatePostContent(session!.access_token, selected!.id, {
+              title: patch.title,
+              caption: patch.caption,
+              hashtags: patch.hashtags,
+              cta: patch.cta,
+              image_prompt: patch.imagePrompt,
+              creative_brief: patch.creativeBrief,
+              scheduled_at: patch.scheduledAt,
+            } as Partial<PostRow>),
           )
         }
         onApprove={() =>
-          runPostAction(
-            "Post aprovado para publicação.",
-            () => approvePost(session!.access_token, selected!.id),
-            { closeModal: true },
-          )
+          runPostAction("Post aprovado.", () => approvePost(session!.access_token, selected!.id), {
+            closeModal: true,
+          })
         }
         onSchedule={(scheduledAt) =>
-          runPostAction(
-            "Post agendado na fila de publicação.",
-            () => schedulePost(session!.access_token, selected as unknown as PostRow, scheduledAt),
-            { closeModal: true },
+          runPostAction("Post agendado.", () =>
+            schedulePost(session!.access_token, selected as unknown as PostRow, scheduledAt),
           )
         }
         onPublish={() =>
-          runPostAction(
-            "Publicação solicitada.",
-            () => publishPostNow(session!.access_token, selected!.id),
-            { closeModal: true },
-          )
+          runPostAction("Publicação solicitada.", () => publishPostNow(session!.access_token, selected!.id))
         }
         onRegenerate={(feedback) =>
-          runPostAction("Nova versão com feedback humano criada.", async () => {
-            await contentCommentRepository.create(session!.access_token, {
-              post_id: selected!.id,
-              comment: feedback,
-              status: "aberto",
-              feedback_for_ai: true,
-            });
-            await requestPostChanges(session!.access_token, selected!.id, feedback);
-            await generatePostContent(session!.access_token, selected!.id, feedback);
-          })
+          runPostAction("Nova versão solicitada.", () =>
+            generatePostContent(session!.access_token, selected!.id, feedback),
+          )
         }
         onGenerateImage={() =>
-          runPostAction("Mídia gerada e salva.", () =>
+          runPostAction("Mídia enviada para fila externa.", () =>
             generatePostImage(session!.access_token, selected!.id),
-          )
-        }
-        onImprove={(mode) =>
-          runPostAction(`Variação ${mode} criada pelo Cérebro IA.`, () =>
-            improvePost(session!.access_token, selected!.id, mode, mode === "visual"),
-          )
-        }
-        onReviewQuality={() =>
-          runPostAction("Revisor IA executado e score atualizado.", () =>
-            reviewPostQuality(session!.access_token, selected!.id),
-          )
-        }
-        onRenderTemplate={() =>
-          runPostAction("Template visual MYINC aplicado.", () =>
-            renderPostTemplate(session!.access_token, selected!.id),
           )
         }
         onArchive={() =>
@@ -626,7 +702,7 @@ function Conteudos() {
           })
         }
         onAddComment={(comment) =>
-          runPostAction("Comentário salvo localmente.", () =>
+          runPostAction("Comentário salvo.", () =>
             contentCommentRepository.create(session!.access_token, {
               post_id: selected!.id,
               comment,
