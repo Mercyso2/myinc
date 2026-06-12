@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
@@ -28,6 +28,7 @@ import { useAuth } from "@/lib/auth";
 import { postRepository } from "@/lib/repositories/post-repository";
 import { postRowToSocialPost } from "@/lib/social-mappers";
 import type { SocialPost } from "@/lib/social-types";
+import type { PostRow } from "@/lib/supabase/types";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -43,9 +44,20 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
+const HIDDEN_STATUSES = new Set(["arquivado", "excluido", "excluído", "deletado", "deleted"]);
+
+function isVisiblePost(row: PostRow) {
+  return !row.deleted_at && !row.archived_at && !HIDDEN_STATUSES.has(String(row.status ?? "").toLowerCase());
+}
+
+function isArchivedPost(row: PostRow) {
+  return Boolean(row.archived_at || HIDDEN_STATUSES.has(String(row.status ?? "").toLowerCase()));
+}
+
 function Dashboard() {
   const { session, isLocalFallback } = useAuth();
-  const [posts, setPosts] = useState<SocialPost[]>([]);
+  const [activePosts, setActivePosts] = useState<SocialPost[]>([]);
+  const [archivedCount, setArchivedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -65,7 +77,11 @@ function Dashboard() {
           session.access_token,
           "select=*&order=scheduled_at.asc",
         );
-        if (!cancelled) setPosts(rows.map((row) => postRowToSocialPost(row)));
+        const visibleRows = rows.filter(isVisiblePost);
+        if (!cancelled) {
+          setActivePosts(visibleRows.map((row) => postRowToSocialPost(row)));
+          setArchivedCount(rows.filter(isArchivedPost).length);
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Falha ao carregar posts.");
       } finally {
@@ -78,19 +94,23 @@ function Dashboard() {
     };
   }, [isLocalFallback, session]);
 
+  const posts = activePosts;
   const approved = posts.filter((p) => p.status === "aprovado").length;
   const pending = posts.filter((p) =>
     ["rascunho", "em_producao", "aguardando_revisao"].includes(p.status),
   ).length;
   const published = posts.filter((p) => p.status === "publicado").length;
-  const errors = posts.filter((p) => p.status === "erro").length;
-  const archived = posts.filter((p) => p.status === "arquivado").length;
+  const errors = posts.filter((p) => p.status === "erro" || p.status === "erro_ia").length;
+  const calendarPosts = useMemo(
+    () => posts.filter((p) => Boolean(p.scheduledAt) && !HIDDEN_STATUSES.has(String(p.status).toLowerCase())),
+    [posts],
+  );
 
   return (
     <div className="mx-auto max-w-7xl space-y-7">
       <PageHeader
         title="Central MYINC Social Media AI"
-        description="Planeje 30 publicações mensais, aprove criativos e controle Instagram/Facebook em uma experiência premium guiada."
+        description="Planeje 30 publicações mensais, aprove criativos e controle Instagram/Facebook em uma experiência premium guiada. Arquivados não entram nos números operacionais."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
@@ -117,9 +137,9 @@ function Dashboard() {
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
         <MetricCard
-          label="Posts planejados"
+          label="Posts ativos"
           value={posts.length}
-          helper="Supabase"
+          helper="operacional"
           icon={Sparkles}
         />
         <MetricCard
@@ -150,7 +170,7 @@ function Dashboard() {
           icon={AlertTriangle}
           tone="destructive"
         />
-        <MetricCard label="Arquivados" value={archived} helper="histórico" icon={Archive} />
+        <MetricCard label="Arquivados" value={archivedCount} helper="histórico" icon={Archive} />
       </div>
 
       <ReleaseStatusCard />
@@ -161,19 +181,19 @@ function Dashboard() {
             <div>
               <h2 className="text-lg font-bold">Calendário compacto</h2>
               <p className="text-sm text-muted-foreground">
-                Carrega posts reais do Supabase; sem dados, exibe estado vazio.
+                Mostra apenas posts ativos com data agendada. Arquivados ficam fora da operação.
               </p>
             </div>
             <Button asChild variant="outline" size="sm">
               <Link to="/calendario">Abrir calendário</Link>
             </Button>
           </div>
-          {posts.length ? (
-            <CalendarView posts={posts} />
+          {calendarPosts.length ? (
+            <CalendarView posts={calendarPosts} />
           ) : (
             <EmptyState
-              title="Nenhum post encontrado"
-              description="Gere um planejamento real com IA ou crie posts no Estúdio Criativo."
+              title="Nenhum post ativo agendado"
+              description="Aprove e agende posts para preencher o calendário editorial."
             />
           )}
         </div>
@@ -193,7 +213,7 @@ function Dashboard() {
               <ConnectionStatus
                 label="IA"
                 status="warning"
-                detail="OpenAI roda somente nas Edge Functions com OPENAI_API_KEY."
+                detail="OpenAI roda no worker Vercel e nas Edge Functions configuradas."
               />
               <ConnectionStatus
                 label="Meta"
