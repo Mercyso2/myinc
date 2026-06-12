@@ -12,6 +12,57 @@ export const postVersionRepository = new BaseRepository<PostVersionRow>("post_ve
 export const contentCommentRepository = new BaseRepository<ContentCommentRow>("content_comments");
 export const generationJobRepository = new BaseRepository<GenerationJobRow>("generation_jobs");
 
+type BatchPayload = { brandId?: string; postIds?: string[]; onlyMissing?: boolean; force?: boolean; limit?: number; provider?: string };
+
+function isArchivedOrDeleted(post: Pick<PostRow, "status" | "archived_at" | "deleted_at">) {
+  const status = String(post.status ?? "").toLowerCase();
+  return Boolean(post.archived_at || post.deleted_at || ["arquivado", "excluido", "excluído", "deleted", "deletado"].includes(status));
+}
+
+async function getActivePost(token: string, postId: string) {
+  const post = await postRepository.getById(token, postId);
+  if (!post) throw new Error("Post não encontrado.");
+  if (isArchivedOrDeleted(post)) throw new Error("Post arquivado/excluído não pode entrar em produção.");
+  return post;
+}
+
+async function resolveBatchBrandId(token: string, payload: BatchPayload) {
+  if (payload.brandId) return payload.brandId;
+  const firstId = payload.postIds?.[0];
+  if (!firstId) throw new Error("brandId ou postIds são obrigatórios para criar fila.");
+  const post = await getActivePost(token, firstId);
+  if (!post.brand_id) throw new Error("Post sem brand_id para criar fila.");
+  return post.brand_id;
+}
+
+async function queueMediaBatch(token: string, payload: BatchPayload, mode: "image" | "video" | "mixed") {
+  const postIds = payload.postIds ?? [];
+  if (!postIds.length) throw new Error("Nenhum post selecionado para fila.");
+  const brandId = await resolveBatchBrandId(token, payload);
+  const response = await createProductionBatch(token, {
+    brandId,
+    postIds,
+    instruction:
+      mode === "video"
+        ? "Criar jobs de vídeo/Reels no worker externo Vercel."
+        : mode === "image"
+          ? "Criar jobs de imagem/carrossel no worker externo Vercel."
+          : "Criar jobs de mídia no worker externo Vercel.",
+  });
+  return {
+    ok: true as const,
+    processed: 0,
+    requested: postIds.length,
+    generated: 0,
+    queued: response.queued ?? 0,
+    remaining: 0,
+    results: [],
+    message: response.queued
+      ? `${response.queued} job(s) enviados para a fila externa Vercel. Clique em Atualizar após o worker processar.`
+      : "Fila externa criada para processamento pela Vercel.",
+  };
+}
+
 export function approvePost(token: string, id: string) {
   return postRepository.update(token, id, {
     status: "aprovado",
@@ -69,8 +120,8 @@ export function generatePostContent(token: string, postId: string, instruction?:
 }
 
 export async function generatePostImage(token: string, postId: string, jobType?: "image" | "carousel" | "video") {
-  const post = await postRepository.get(token, postId);
-  if (!post?.brand_id) throw new Error("Post sem brand_id para criar fila de mídia.");
+  const post = await getActivePost(token, postId);
+  if (!post.brand_id) throw new Error("Post sem brand_id para criar fila de mídia.");
   const response = await createProductionBatch(token, {
     brandId: post.brand_id,
     postIds: [postId],
@@ -112,42 +163,12 @@ export function publishPostNow(token: string, postId: string) {
   );
 }
 
-export function generateImagesBatch(
-  token: string,
-  payload: {
-    brandId?: string;
-    postIds?: string[];
-    onlyMissing?: boolean;
-    force?: boolean;
-    limit?: number;
-  },
-) {
-  return callEdgeFunction<{
-    ok: true;
-    processed: number;
-    requested: number;
-    generated: number;
-    queued?: number;
-    remaining: number;
-    results: unknown[];
-    message?: string;
-  }>("generate-images-batch", token, payload);
+export function generateImagesBatch(token: string, payload: BatchPayload) {
+  return queueMediaBatch(token, payload, "image");
 }
 
-export function generateVideosBatch(
-  token: string,
-  payload: { brandId?: string; postIds?: string[]; force?: boolean; limit?: number; provider?: string },
-) {
-  return callEdgeFunction<{
-    ok: true;
-    processed: number;
-    requested: number;
-    generated: number;
-    queued?: number;
-    remaining: number;
-    results: unknown[];
-    message?: string;
-  }>("generate-videos-batch", token, payload);
+export function generateVideosBatch(token: string, payload: BatchPayload) {
+  return queueMediaBatch(token, payload, "video");
 }
 
 export async function reviewPostQuality(token: string, postId: string) {
@@ -190,14 +211,14 @@ export async function renderTemplatesBatch(
 }
 
 export async function createLocalBackup(token: string, label?: string) {
-  const rows = await postRepository.list(token, "select=*&deleted_at=is.null&order=updated_at.desc&limit=500");
+  const rows = await postRepository.listActive(token, "select=*&order=updated_at.desc&limit=500");
   const payload = {
     ok: true as const,
     label: label ?? `backup-${new Date().toISOString()}`,
     createdAt: new Date().toISOString(),
     totalPosts: rows.length,
   };
-  return { ...payload, message: `Backup lógico registrado com ${rows.length} post(s).` };
+  return { ...payload, message: `Backup lógico registrado com ${rows.length} post(s) ativo(s).` };
 }
 
 export function runAutonomousProduction(
