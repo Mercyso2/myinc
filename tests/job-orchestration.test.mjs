@@ -82,3 +82,17 @@ test("Vercel failures fall back to the Edge processor that can read Edge secrets
   assert.match(edgeProcessor, /claimQueuedFallback/);
   assert.match(admin, /OpenAI nos Secrets da Supabase Edge/);
 });
+
+test("shared Edge CORS reflects authenticated HTTPS production origins", async () => {
+  const runtime = await read("supabase/functions/_shared/runtime-config.ts");
+  assert.match(runtime, /origin\.startsWith\("https:\/\/"\)/);
+  assert.match(runtime, /"Access-Control-Allow-Origin": responseOrigin/);
+  assert.match(runtime, /Vary: "Origin, Access-Control-Request-Headers"/);
+});
+
+test("admin status tests the OpenAI secret inside the Edge runtime", async () => {
+  const status = await read("supabase/functions/admin-status/index.ts");
+  assert.match(status, /Deno\.env\.get\("OPENAI_API_KEY"\)/);
+  assert.match(status, /fetch\("https:\/\/api\.openai\.com\/v1\/models"/);
+  assert.match(status, /openaiConnection: edgeOpenAiConnection/);
+});

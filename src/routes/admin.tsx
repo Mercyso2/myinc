@@ -65,6 +65,13 @@ type AdminStatus = {
   edgeFunctions?: Record<string, boolean>;
   imageDiagnostic?: {
     openaiApiKey?: boolean;
+    openaiKeySource?: string;
+    openaiConnection?: {
+      tested?: boolean;
+      connected?: boolean;
+      status?: number | null;
+      error?: string | null;
+    };
     imageModel?: boolean;
     imageModelName?: string;
     storage?: boolean;
@@ -216,18 +223,23 @@ function Admin() {
                 status={status?.imageDiagnostic?.openaiApiKey ? "online" : "offline"}
                 detail={
                   status?.imageDiagnostic?.openaiApiKey
-                    ? `Configurada na Edge • modelo: ${status.imageDiagnostic.imageModelName ?? "não informado"}`
-                    : "OPENAI_API_KEY não encontrada pela Edge Function admin-status."
+                    ? `Configurada via ${status.imageDiagnostic.openaiKeySource ?? "Supabase Edge"} • modelo: ${status.imageDiagnostic.imageModelName ?? "não informado"}`
+                    : "Não confirmada por admin-status. Faça deploy da função atualizada para testar o Secret da Edge."
+                }
+              />
+              <ConnectionStatus
+                label="Conexão OpenAI pela Supabase Edge"
+                status={status?.imageDiagnostic?.openaiConnection?.connected ? "online" : "offline"}
+                detail={
+                  status?.imageDiagnostic?.openaiConnection?.error ??
+                  (status?.imageDiagnostic?.openaiConnection?.tested
+                    ? `OpenAI respondeu HTTP ${status.imageDiagnostic.openaiConnection.status}.`
+                    : "Teste ainda não executado pela Edge Function admin-status atualizada.")
                 }
               />
               <ConnectionStatus
                 label="Fallback Supabase Edge compute-safe"
-                status={
-                  status?.edgeFunctions?.processNextGenerationJobSafe &&
-                  status?.imageDiagnostic?.openaiApiKey
-                    ? "online"
-                    : "offline"
-                }
+                status={status?.edgeFunctions?.processNextGenerationJobSafe ? "online" : "offline"}
                 detail="Usado automaticamente quando o worker Vercel não possui acesso ao cofre da Edge."
               />
               <ConnectionStatus

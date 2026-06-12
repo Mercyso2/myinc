@@ -81,3 +81,16 @@ Para ativar esse fallback, publicar:
 supabase functions deploy process-next-generation-job-safe
 supabase functions deploy admin-status
 ```
+
+## Correção de CORS do fallback Edge
+
+Se o navegador mostrar `falha de rede/CORS ao acessar <project>.supabase.co`, o fallback foi encontrado, mas a versão publicada da Edge Function ainda responde com um `Access-Control-Allow-Origin` antigo. O helper compartilhado agora aceita a origem HTTPS autenticada do frontend mesmo quando `CORS_ALLOW_ORIGIN` ficou desatualizado após troca de domínio.
+
+Como o código compartilhado é empacotado dentro de cada função no deploy, publique novamente pelo menos:
+
+```bash
+supabase functions deploy process-next-generation-job-safe
+supabase functions deploy admin-status
+```
+
+O `admin-status` atualizado também testa `OPENAI_API_KEY` diretamente dentro do runtime da Supabase Edge via `GET /v1/models`, distinguindo “Secret ausente” de “função de diagnóstico antiga ainda publicada”.
