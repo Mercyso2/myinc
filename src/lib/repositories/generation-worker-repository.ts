@@ -12,15 +12,27 @@ export type ProcessNextGenerationJobResult = {
 };
 
 export async function processNextGenerationJob(token: string, payload: { batchId?: string } = {}) {
-  const response = await fetch("/api/jobs/process-next", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = (await response.json().catch(() => ({}))) as ProcessNextGenerationJobResult;
-  if (!response.ok)
-    throw new Error(data.error ?? `Processador Vercel respondeu HTTP ${response.status}.`);
-  return data;
+  const routes = ["/api/jobs/process-next", "/api/worker/process"];
+  let lastError = "Processador Vercel indisponível.";
+
+  for (const route of routes) {
+    try {
+      const response = await fetch(route, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await response.json().catch(() => ({}))) as ProcessNextGenerationJobResult;
+      if (response.ok) return data;
+
+      lastError = data.error ?? `${route} respondeu HTTP ${response.status}.`;
+      if (response.status < 500 && response.status !== 404 && response.status !== 405) break;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : `Falha de rede em ${route}.`;
+    }
+  }
+
+  throw new Error(lastError);
 }
 
 export function useExternalAiWorker() {
@@ -44,7 +56,7 @@ export async function processGenerationBatchSequentially(
     const result = await processNextGenerationJob(token, { batchId: payload.batchId });
     results.push(result);
     payload.onStep?.({ index: index + 1, result });
-    if (!result.ok || result.processed === 0) break;
+    if (result.processed === 0) break;
   }
 
   return results;

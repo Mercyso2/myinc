@@ -176,25 +176,31 @@ function Conteudos() {
     post.format.toLowerCase().includes("carrossel"),
   );
 
-  async function processNow(passes = 10) {
+  async function processNow(passes = 120) {
     if (!session) return;
     setProcessingNow(true);
+    setError("");
     try {
       const results = await processGenerationBatchSequentially(session.access_token, {
         maxSteps: passes,
       });
       const processed = results.filter((result) => result.processed > 0).length;
-      const failed = results.find((result) => !result.ok);
-      if (failed) throw new Error(failed.error ?? "O worker Vercel registrou uma falha técnica.");
-      toast.success(
-        processed
-          ? `${processed} job(s) processado(s) pela Vercel.`
-          : "Não havia job pronto na fila.",
-      );
+      const failures = results.filter((result) => !result.ok);
+      const message = !processed
+        ? "Não havia job pronto na fila. Envie posts/imagens para a fila antes de processar."
+        : failures.length
+          ? `${processed} job(s) processado(s), com ${failures.length} falha(s). Veja a aba Erros/logs para o motivo técnico.`
+          : `${processed} job(s) processado(s) pela Vercel.`;
+
+      if (failures.length) toast.warning(message);
+      else toast.success(message);
       await load();
-      return {
-        message: processed ? `${processed} job(s) processado(s).` : "Fila sem jobs prontos.",
-      };
+      return { message };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Falha ao acionar o worker Vercel.";
+      setError(message);
+      toast.error(message);
+      throw err;
     } finally {
       setProcessingNow(false);
     }
@@ -217,7 +223,7 @@ function Conteudos() {
   async function produceAndProcessAll() {
     if (!session) return;
     if (readyForProduction.length) await produceAll();
-    return processNow(12);
+    return processNow();
   }
 
   async function generateAllImages() {
@@ -375,7 +381,7 @@ function Conteudos() {
               variant="outline"
               className="rounded-full border-primary/50 text-primary"
               disabled={loading || processingNow}
-              onClick={() => void processNow(12)}
+              onClick={() => void processNow().catch(() => undefined)}
             >
               <Play className="h-4 w-4" /> {processingNow ? "Processando..." : "Processar agora"}
             </Button>

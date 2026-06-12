@@ -17,7 +17,8 @@ test("worker uses atomic Supabase lock and processes one job", async () => {
 
 test("frontend processes through authenticated Vercel route, not Edge", async () => {
   const repository = await read("src/lib/repositories/generation-worker-repository.ts");
-  assert.match(repository, /fetch\("\/api\/jobs\/process-next"/);
+  assert.match(repository, /"\/api\/jobs\/process-next"/);
+  assert.match(repository, /"\/api\/worker\/process"/);
   assert.match(repository, /Authorization: `Bearer \$\{token\}`/);
   assert.doesNotMatch(repository, /"process-next-generation-job",\s*token/);
 });
@@ -35,4 +36,24 @@ test("secrets stay server-side and health endpoint returns booleans only", async
 test("Meta publication asset update has one valid table selector", async () => {
   const publish = await read("supabase/functions/publish-meta/index.ts");
   assert.doesNotMatch(publish, /\.from\("media_assets"\)\s*\.from\("media_assets"\)/);
+});
+
+test("queue draining continues after a failed job and studio allows enough steps for images", async () => {
+  const [repository, studio] = await Promise.all([
+    read("src/lib/repositories/generation-worker-repository.ts"),
+    read("src/routes/conteudos.tsx"),
+  ]);
+  assert.match(repository, /if \(result\.processed === 0\) break/);
+  assert.doesNotMatch(repository, /if \(!result\.ok \|\| result\.processed === 0\) break/);
+  assert.match(studio, /async function processNow\(passes = 120\)/);
+  assert.match(studio, /toast\.error\(message\)/);
+});
+
+test("media actions enqueue media directly without a higher-priority content job", async () => {
+  const [posts, queue] = await Promise.all([
+    read("src/lib/repositories/post-repository.ts"),
+    read("supabase/functions/process-production-queue/index.ts"),
+  ]);
+  assert.match(posts, /includeContent: false/);
+  assert.match(queue, /if \(payload\.includeContent !== false\)/);
 });

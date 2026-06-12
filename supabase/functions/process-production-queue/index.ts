@@ -86,22 +86,24 @@ serve(async (req) => {
         updated_at: new Date().toISOString(),
       };
 
-      const { data: contentJob, error: contentError } = await supabase
-        .from("generation_jobs")
-        .insert({
-          ...common,
-          type: "content",
-          job_type: "content",
-          priority: 10,
-          idempotency_key: `${batchId}:${postId}:content`,
-          input_json: {
-            instruction: payload.instruction ?? "Produzir conteudo premium MYINC.",
-          },
-        })
-        .select("id,type,job_type,post_id,status")
-        .single();
-      if (contentError) throw contentError;
-      queuedJobs.push(contentJob);
+      if (payload.includeContent !== false) {
+        const { data: contentJob, error: contentError } = await supabase
+          .from("generation_jobs")
+          .insert({
+            ...common,
+            type: "content",
+            job_type: "content",
+            priority: 10,
+            idempotency_key: `${batchId}:${postId}:content`,
+            input_json: {
+              instruction: payload.instruction ?? "Produzir conteudo premium MYINC.",
+            },
+          })
+          .select("id,type,job_type,post_id,status")
+          .single();
+        if (contentError) throw contentError;
+        queuedJobs.push(contentJob);
+      }
 
       const format = String(post.format ?? "");
       if (isCarousel(format)) {
