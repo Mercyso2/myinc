@@ -1,0 +1,28 @@
+{
+  "name": "myinc-social-media-ai-perfect",
+  "version": "2.0.1",
+  "private": true,
+  "type": "module",
+  "description": "MYINC Social Media AI — Vercel Worker + Supabase, arquitetura compute-safe para geração de social media com IA.",
+  "scripts": {
+    "dev": "vite dev",
+    "dev:host": "vite dev --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run build",
+    "diagnose": "node scripts/diagnose.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "vite": "^7.3.1",
+    "typescript": "^5.8.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/node": "^22.16.5"
+  }
+}

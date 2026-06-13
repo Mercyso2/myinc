@@ -1,0 +1,15 @@
+{
+  "framework": "vite",
+  "installCommand": "npm install --legacy-peer-deps",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/jobs/process-next.js": { "maxDuration": 60 },
+    "api/jobs/create-batch.js": { "maxDuration": 20 },
+    "api/jobs/retry.js": { "maxDuration": 20 },
+    "api/debug/health.js": { "maxDuration": 20 },
+    "api/admin/save-settings.js": { "maxDuration": 20 },
+    "api/meta/publish.js": { "maxDuration": 60 },
+    "api/worker/process.js": { "maxDuration": 60 }
+  }
+}
